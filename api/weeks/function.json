@@ -1,8 +1,17 @@
 {
-  "name": "laorthos-schedule-api",
-  "version": "1.0.0",
-  "private": true,
-  "dependencies": {
-    "@azure/data-tables": "^13.3.0"
-  }
+  "bindings": [
+    {
+      "authLevel": "anonymous",
+      "type": "httpTrigger",
+      "direction": "in",
+      "name": "req",
+      "methods": ["get"],
+      "route": "weeks"
+    },
+    {
+      "type": "http",
+      "direction": "out",
+      "name": "res"
+    }
+  ]
 }
