@@ -1,41 +1,22 @@
-/* =========================
-   LA Orthos Schedule — styles.css
-   Color scheme aligned to laorthos.com (navy/blue + clean light UI)
-   ========================= */
-
-/* --------- Base / Theme --------- */
 :root{
-  /* Core brand-ish */
-  --navy: #0b1f3a;
+  --navy:#0b1f3a;
   --navy2:#102a4c;
   --blue:#1e5aa8;
   --blue2:#2b6fd6;
 
-  /* UI neutrals */
   --bg:#f6f8fc;
   --panel:#ffffff;
   --text:#0f172a;
   --muted:#5b677a;
 
-  /* Borders / shadows */
   --line: rgba(15, 23, 42, .12);
   --line2: rgba(15, 23, 42, .18);
   --shadow: 0 10px 28px rgba(2,6,23,.08);
 
-  /* Accents */
-  --success:#0f766e;
-  --danger:#b42318;
-  --warn:#b45309;
+  --r-lg:18px;
+  --r-md:14px;
+  --r-sm:12px;
 
-  /* Radius */
-  --r-lg: 18px;
-  --r-md: 14px;
-  --r-sm: 12px;
-
-  /* Spacing */
-  --pad: 16px;
-
-  /* Fonts */
   --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
 }
 
@@ -45,17 +26,17 @@ body{
   margin:0;
   font-family: var(--font);
   color: var(--text);
-  background: radial-gradient(1200px 600px at 10% -10%, rgba(43,111,214,.14), transparent 55%),
-              radial-gradient(900px 500px at 90% 0%, rgba(30,90,168,.10), transparent 50%),
-              var(--bg);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(43,111,214,.14), transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, rgba(30,90,168,.10), transparent 50%),
+    var(--bg);
 }
 
 a{ color: var(--blue); }
 [hidden]{ display:none !important; }
 
-/* --------- Layout --------- */
 .wrap{
-  max-width: 1200px;
+  max-width: 1320px;
   margin: 18px auto 60px;
   padding: 0 14px;
 }
@@ -93,7 +74,7 @@ a{ color: var(--blue); }
 
 .view{ margin-top: 14px; }
 
-/* --------- Topbar / Tabs --------- */
+/* Topbar */
 .topbar{
   position: sticky;
   top:0;
@@ -118,7 +99,6 @@ a{ color: var(--blue); }
   box-shadow: 0 10px 22px rgba(11,31,58,.18);
 }
 
-.brandText{ display:flex; flex-direction:column; }
 .brandTitle{
   font-weight: 900;
   color: var(--navy);
@@ -162,16 +142,8 @@ a{ color: var(--blue); }
   box-shadow: 0 10px 22px rgba(2,6,23,.06);
 }
 
-/* --------- Common components --------- */
-.row{
-  display:flex;
-  gap: 12px;
-  align-items:flex-end;
-  padding: 12px 16px;
-  flex-wrap:wrap;
-}
-
-.filters{
+/* Common */
+.row, .filters{
   display:flex;
   gap: 12px;
   align-items:flex-end;
@@ -210,9 +182,21 @@ select{
   box-shadow: 0 1px 0 rgba(2,6,23,.02);
 }
 
-input::placeholder{ color: rgba(91,103,122,.7); }
+textarea.ta{
+  min-height: 86px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 10px 12px;
+  outline:none;
+  color: var(--text);
+  font-weight: 700;
+  resize: vertical;
+}
 
-input:focus, select:focus{
+input::placeholder, textarea::placeholder{ color: rgba(91,103,122,.7); }
+
+input:focus, select:focus, textarea:focus{
   border-color: rgba(30,90,168,.55);
   box-shadow: 0 0 0 4px rgba(43,111,214,.12);
 }
@@ -245,7 +229,6 @@ input:focus, select:focus{
   font-size: 12px;
 }
 
-/* Buttons */
 .btn{
   height: 44px;
   padding: 0 14px;
@@ -307,9 +290,9 @@ input:focus, select:focus{
   align-self:center;
 }
 
-/* Text helpers */
 .muted{ color: var(--muted); }
 .small{ font-size: 12px; }
+
 .hint{
   font-size: 12px;
   color: rgba(91,103,122,.88);
@@ -317,7 +300,6 @@ input:focus, select:focus{
   line-height: 1.35;
 }
 
-/* Toast */
 .toast{
   position: sticky;
   top: 72px;
@@ -333,7 +315,7 @@ input:focus, select:focus{
   box-shadow: 0 12px 24px rgba(2,6,23,.06);
 }
 
-/* --------- Cards (My Schedule) --------- */
+/* My Schedule cards */
 .cards{
   display:grid;
   grid-template-columns: 1fr;
@@ -379,7 +361,6 @@ input:focus, select:focus{
 .dayName{
   font-weight: 900;
   color: var(--navy);
-  letter-spacing: .2px;
 }
 
 .dayValue{
@@ -388,7 +369,7 @@ input:focus, select:focus{
   text-align:right;
 }
 
-/* --------- Builder layout --------- */
+/* Builder */
 .builderTop{
   display:flex;
   gap: 12px;
@@ -420,6 +401,11 @@ input:focus, select:focus{
   min-width: 320px;
 }
 
+.subPanel.wide{
+  flex: 1 1 100%;
+  min-width: 320px;
+}
+
 .subHead{
   display:flex;
   align-items:center;
@@ -431,7 +417,6 @@ input:focus, select:focus{
 .subTitle{
   font-weight: 1000;
   color: var(--navy);
-  letter-spacing: .2px;
 }
 
 .templateList{
@@ -481,7 +466,7 @@ input:focus, select:focus{
   margin-left: 8px;
 }
 
-/* --------- Tables / Grid --------- */
+/* Tables */
 .tableWrap{
   border: 1px solid var(--line);
   border-radius: var(--r-md);
@@ -489,11 +474,7 @@ input:focus, select:focus{
   background: #fff;
 }
 
-table{
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-}
+table{ width: 100%; border-collapse: separate; border-spacing: 0; }
 
 .grid th, .grid td{
   border-bottom: 1px solid var(--line);
@@ -510,20 +491,16 @@ table{
   font-size: 12px;
   font-weight: 1000;
   color: rgba(11,31,58,.9);
-  text-transform: none;
   letter-spacing: .2px;
 }
 
-.grid tr:hover td{
-  background: rgba(246,248,252,.8);
-}
+.grid tr:hover td{ background: rgba(246,248,252,.8); }
 
 .nameCell{
   font-weight: 900;
   color: rgba(11,31,58,.95);
 }
 
-/* Cell buttons (Builder + Provider grids) */
 .cellBtn{
   width: 100%;
   min-height: 44px;
@@ -545,16 +522,87 @@ table{
 
 .cellBtn:active{ transform: translateY(1px); }
 
-/* Enhancement requested */
-.cellBtn.is-selected{
-  outline: 2px solid rgba(15,23,42,.25);
+.cellBtn.is-selected{ outline: 2px solid rgba(15,23,42,.25); }
+.cellBtn.is-active{ outline: 3px solid var(--navy); }
+
+/* Provider Builder */
+.providerLayout{
+  display:flex;
+  gap: 12px;
+  flex-wrap:wrap;
 }
 
-.cellBtn.is-active{
-  outline: 3px solid var(--navy);
+.providerBox{
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(246,248,252,.55);
+  padding: 12px;
+  flex: 0 0 360px;
+  min-width: 320px;
 }
 
-/* --------- Modal --------- */
+.providerBox.grow{
+  flex: 1 1 520px;
+  min-width: 320px;
+}
+
+.providerBoxHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:10px;
+}
+
+.providerBoxTitle{
+  font-weight: 1000;
+  color: var(--navy);
+}
+
+.providerList{
+  margin-top: 10px;
+  display:flex;
+  flex-direction:column;
+  gap: 10px;
+  max-height: 46vh;
+  overflow:auto;
+  padding-right: 4px;
+}
+
+.providerRow{
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  padding: 10px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.providerRow input{
+  flex: 1;
+}
+
+.xrByLocation{
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.locCard{
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  padding: 10px;
+}
+
+.locTitle{
+  font-weight: 1000;
+  color: var(--navy);
+  margin-bottom: 8px;
+}
+
+/* Modal */
 .modal{
   position: fixed;
   inset: 0;
@@ -572,7 +620,7 @@ table{
 
 .modalCard{
   position: relative;
-  width: min(720px, calc(100% - 22px));
+  width: min(760px, calc(100% - 22px));
   max-height: calc(100% - 22px);
   overflow:auto;
   border-radius: 18px;
@@ -604,7 +652,7 @@ table{
   border-top: 1px solid var(--line);
 }
 
-/* --------- Print --------- */
+/* Print */
 @media print{
   .topbar, .panelActions, .tabs, #toast, #btnPrint, #btnExportCSV, #builderTab, #view-builder { display:none !important; }
   body{ background:#fff; }
@@ -613,16 +661,15 @@ table{
   .grid th{ position: static; }
 }
 
-/* --------- Responsive --------- */
+/* Responsive */
 @media (min-width: 860px){
   .cards{ grid-template-columns: 1fr 1fr; }
   .weekCards{ grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 520px){
-  .panelHead{ align-items:flex-start; }
   .panelActions{ width:100%; justify-content:flex-start; }
   .field{ min-width: 100%; }
   .subPanel{ min-width: 100%; flex: 1 1 100%; }
-  .btn{ width:auto; }
+  .providerBox{ min-width: 100%; flex: 1 1 100%; }
 }
