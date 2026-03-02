@@ -1,1 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LA Orthos | MA/XR Schedule</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logoMark" aria-hidden="true"></div>
+      <div class="brandText">
+        <div class="brandTitle">LA Orthos Schedule</div>
+        <div class="brandSub" id="authLine">Loading…</div>
+      </div>
+    </div>
 
+    <nav class="tabs" role="tablist" aria-label="Schedule views">
+      <button class="tab is-active" data-view="my" role="tab" aria-selected="true">My Schedule</button>
+      <button class="tab" data-view="everyone" role="tab" aria-selected="false">Everyone</button>
+      <button class="tab" data-view="builder" role="tab" aria-selected="false" id="builderTab" style="display:none;">Builder</button>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section id="toast" class="toast" hidden></section>
+
+    <!-- MY (mobile-first) -->
+    <section id="view-my" class="view">
+      <div class="panel">
+        <div class="panelHead">
+          <h1>My Schedule</h1>
+          <div class="panelActions">
+            <button class="btn btnGhost" id="btnLogin">Login</button>
+            <button class="btn btnGhost" id="btnLogout">Logout</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label>Week of (Mon)</label>
+            <select id="weekPickMy"></select>
+          </div>
+          <div class="field grow">
+            <label>Matched staff</label>
+            <div class="pill" id="myMatchPill">—</div>
+          </div>
+        </div>
+
+        <div class="cards">
+          <div class="card">
+            <div class="cardTitle">Today</div>
+            <div id="todayCard" class="cardBody muted">Loading…</div>
+          </div>
+
+          <div class="card">
+            <div class="cardTitle">This Week</div>
+            <div id="weekCards" class="weekCards"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EVERYONE -->
+    <section id="view-everyone" class="view" hidden>
+      <div class="panel">
+        <div class="panelHead">
+          <h1>Everyone</h1>
+          <div class="panelActions">
+            <button class="btn btnGhost" id="btnPrint">Print</button>
+            <button class="btn btnGhost" id="btnExportCSV">Export CSV</button>
+          </div>
+        </div>
+
+        <div class="filters">
+          <div class="field">
+            <label>Week of (Mon)</label>
+            <select id="weekPickEveryone"></select>
+          </div>
+          <div class="field">
+            <label>Role</label>
+            <select id="roleFilter">
+              <option value="ALL">All</option>
+              <option value="MA">MA</option>
+              <option value="XR">XR</option>
+            </select>
+          </div>
+          <div class="field grow">
+            <label>Search</label>
+            <input id="searchFilter" type="text" placeholder="Type a name…" />
+          </div>
+        </div>
+
+        <div class="tableWrap">
+          <table class="grid" id="everyoneGrid">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- BUILDER (editors only) -->
+    <section id="view-builder" class="view" hidden>
+      <div class="panel">
+        <div class="panelHead">
+          <h1>Builder</h1>
+          <div class="panelActions">
+            <button class="btn btnGhost" id="btnImportCSV">Import CSV</button>
+            <button class="btn btnGhost" id="btnLoadDraft">Load Draft</button>
+            <button class="btn btnGhost" id="btnLoadPublished">Load Published</button>
+            <button class="btn" id="btnSaveDraft">Save Draft</button>
+            <button class="btn" id="btnPublish">Publish</button>
+          </div>
+        </div>
+
+        <div class="builderTop">
+          <div class="field">
+            <label>Week of (Mon)</label>
+            <select id="weekPickBuilder"></select>
+          </div>
+          <div class="field grow">
+            <label>Status</label>
+            <div class="pill" id="builderStatus">—</div>
+          </div>
+          <div class="field">
+            <label>Validate</label>
+            <button class="btn btnGhost" id="btnValidate">Run</button>
+          </div>
+        </div>
+
+        <div class="subPanels">
+          <div class="subPanel">
+            <div class="subHead">
+              <div class="subTitle">Roster Emails</div>
+              <button class="btn btnSmall btnGhost" id="btnAutoGuessEmails">Auto-guess</button>
+            </div>
+            <div id="rosterEmailList" class="templateList"></div>
+            <div class="hint">
+              Required for “My Schedule”. Match is: login email → roster email.
+            </div>
+          </div>
+
+          <div class="subPanel">
+            <div class="subHead">
+              <div class="subTitle">Templates</div>
+              <button class="btn btnSmall btnGhost" id="btnAddTemplate">Add</button>
+            </div>
+            <div id="templateList" class="templateList"></div>
+            <div class="hint">
+              Templates are learned from CSV + whatever you add.
+              Click a cell in the grid to apply a template.
+            </div>
+          </div>
+
+          <div class="subPanel grow">
+            <div class="subHead">
+              <div class="subTitle">Weekly Grid</div>
+              <div class="muted small" id="editHint">Click any cell to assign</div>
+            </div>
+
+            <div class="tableWrap">
+              <table class="grid" id="builderGrid">
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal -->
+  <div class="modal" id="modal" hidden>
+    <div class="modalBackdrop" data-close="1"></div>
+    <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modalHead">
+        <div id="modalTitle" class="modalTitle">Modal</div>
+        <button class="iconBtn" data-close="1" aria-label="Close">✕</button>
+      </div>
+      <div class="modalBody" id="modalBody"></div>
+      <div class="modalFoot" id="modalFoot"></div>
+    </div>
+  </div>
+
+  <input id="csvFile" type="file" accept=".csv,text/csv" hidden />
+  <script src="./app.js"></script>
+</body>
+</html>
