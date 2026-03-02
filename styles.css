@@ -522,9 +522,6 @@ table{ width: 100%; border-collapse: separate; border-spacing: 0; }
 
 .cellBtn:active{ transform: translateY(1px); }
 
-.cellBtn.is-selected{ outline: 2px solid rgba(15,23,42,.25); }
-.cellBtn.is-active{ outline: 3px solid var(--navy); }
-
 /* Provider Builder */
 .providerLayout{
   display:flex;
@@ -601,6 +598,18 @@ table{ width: 100%; border-collapse: separate; border-spacing: 0; }
   color: var(--navy);
   margin-bottom: 8px;
 }
+
+.bulkBar{
+  display:flex;
+  gap:12px;
+  align-items:flex-end;
+  flex-wrap:wrap;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.75);
+  border-radius: var(--r-md);
+  padding: 10px;
+}
+.bulkBar .field{ min-width: 190px; }
 
 /* Modal */
 .modal{
