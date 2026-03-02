@@ -107,9 +107,16 @@
         <div class="panelHead">
           <h1>Builder</h1>
           <div class="panelActions">
-            <button class="btn btnGhost" id="btnImportCSV">Import CSV</button>
+            <button class="btn btnGhost" id="btnNewBlankWeek">New Blank</button>
+            <button class="btn btnGhost" id="btnStartFromPublished">Start From Published</button>
+            <button class="btn btnGhost" id="btnClonePrevPublished">Clone Previous Published</button>
+
+            <span class="divider"></span>
+
             <button class="btn btnGhost" id="btnLoadDraft">Load Draft</button>
             <button class="btn btnGhost" id="btnLoadPublished">Load Published</button>
+            <button class="btn btnGhost" id="btnImportCSV">Import CSV</button>
+
             <button class="btn" id="btnSaveDraft">Save Draft</button>
             <button class="btn" id="btnPublish">Publish</button>
           </div>
@@ -149,15 +156,33 @@
             </div>
             <div id="templateList" class="templateList"></div>
             <div class="hint">
-              Templates are learned from CSV + whatever you add.
-              Click a cell in the grid to apply a template.
+              Templates are what you assign into the grid.
             </div>
           </div>
 
           <div class="subPanel grow">
-            <div class="subHead">
-              <div class="subTitle">Weekly Grid</div>
-              <div class="muted small" id="editHint">Click any cell to assign</div>
+            <div class="subHead" style="gap:12px; flex-wrap:wrap;">
+              <div style="display:flex; flex-direction:column;">
+                <div class="subTitle">Weekly Grid</div>
+                <div class="muted small" id="editHint">Click a cell to assign. Shift+Click to select a range.</div>
+              </div>
+
+              <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-left:auto;">
+                <div class="field" style="min-width:280px;">
+                  <label>Bulk template</label>
+                  <select id="bulkTemplate"></select>
+                </div>
+
+                <div class="field" style="min-width:210px;">
+                  <label>Selection</label>
+                  <div class="pill" id="selectionPill">None</div>
+                </div>
+
+                <button class="btn btnGhost" id="btnApplySelection">Apply to Selection</button>
+                <button class="btn btnGhost" id="btnApplyRow">Apply to Row</button>
+                <button class="btn btnGhost" id="btnApplyDay">Apply to Day</button>
+                <button class="btn btnGhost" id="btnClearSelection">Clear Selection</button>
+              </div>
             </div>
 
             <div class="tableWrap">
@@ -165,6 +190,11 @@
                 <thead></thead>
                 <tbody></tbody>
               </table>
+            </div>
+
+            <div class="hint">
+              Tip: Click a cell, pick a template. Then you can bulk-apply it to a row/day/selection.
+              Keyboard: Enter re-uses last picked template on the current cell.
             </div>
           </div>
         </div>
