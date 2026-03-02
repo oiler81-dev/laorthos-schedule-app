@@ -101,21 +101,29 @@
       </div>
     </section>
 
-    <!-- BUILDER -->
+    <!-- BUILDER (editors only) -->
     <section id="view-builder" class="view" hidden>
       <div class="panel">
         <div class="panelHead">
           <h1>Builder</h1>
           <div class="panelActions">
-            <button class="btn btnGhost" id="btnNewBlankWeek">New Blank</button>
-            <button class="btn btnGhost" id="btnStartFromPublished">Start From Published</button>
-            <button class="btn btnGhost" id="btnClonePrevPublished">Clone Previous Published</button>
+            <button class="btn btnGhost" id="btnNewBlankWeek">New Blank Week</button>
 
-            <span class="divider"></span>
+            <span class="divider" aria-hidden="true"></span>
 
+            <button class="btn btnGhost" id="btnImportCSV">Import Schedule CSV</button>
             <button class="btn btnGhost" id="btnLoadDraft">Load Draft</button>
             <button class="btn btnGhost" id="btnLoadPublished">Load Published</button>
-            <button class="btn btnGhost" id="btnImportCSV">Import CSV</button>
+
+            <span class="divider" aria-hidden="true"></span>
+
+            <button class="btn btnGhost" id="btnLoadDefaultRoster">Load Default Roster</button>
+            <button class="btn btnGhost" id="btnSaveDefaultRoster">Save Default Roster</button>
+
+            <button class="btn btnGhost" id="btnLoadDefaultProviders">Load Default Providers</button>
+            <button class="btn btnGhost" id="btnSaveDefaultProviders">Save Default Providers</button>
+
+            <span class="divider" aria-hidden="true"></span>
 
             <button class="btn" id="btnSaveDraft">Save Draft</button>
             <button class="btn" id="btnPublish">Publish</button>
@@ -137,26 +145,8 @@
           </div>
         </div>
 
-        <!-- NEW: Builder mode toggle -->
-        <div class="row" style="margin-top:10px;">
-          <div class="field">
-            <label>Build mode</label>
-            <div style="display:flex; gap:8px;">
-              <button class="btn btnGhost" id="btnModeProvider">Provider Builder</button>
-              <button class="btn btnGhost" id="btnModeStaff">Staff Grid</button>
-            </div>
-          </div>
-          <div class="field grow">
-            <label>Locations</label>
-            <div class="pill">Wilshire (WIL) • Santa Fe Springs (SFS) • East LA (ELA) • Glendale (GLE) • Tarzana (TZ) • Encino (ENC) • Valencia (VAL) • Thousand Oaks (TO)</div>
-          </div>
-          <div class="field">
-            <label>Providers</label>
-            <button class="btn btnGhost" id="btnManageProviders">Manage</button>
-          </div>
-        </div>
-
         <div class="subPanels">
+          <!-- Roster -->
           <div class="subPanel">
             <div class="subHead">
               <div class="subTitle">Roster Emails</div>
@@ -168,6 +158,7 @@
             </div>
           </div>
 
+          <!-- Templates -->
           <div class="subPanel">
             <div class="subHead">
               <div class="subTitle">Templates</div>
@@ -175,77 +166,71 @@
             </div>
             <div id="templateList" class="templateList"></div>
             <div class="hint">
-              Templates are what you assign into the grid.
+              Templates are learned from Schedule CSV + whatever you add.
+              Click a cell in the weekly grid to apply a template.
             </div>
           </div>
 
+          <!-- Weekly grid -->
           <div class="subPanel grow">
-            <!-- Provider Builder -->
-            <div id="builderProviderWrap">
-              <div class="subHead" style="gap:12px; flex-wrap:wrap;">
-                <div style="display:flex; flex-direction:column;">
-                  <div class="subTitle">Provider Builder</div>
-                  <div class="muted small">Click any cell to assign MA + XR for that provider/day</div>
-                </div>
-                <div class="field" style="margin-left:auto; min-width:280px;">
-                  <label>Quick filter</label>
-                  <input id="providerFilter" type="text" placeholder="Type provider name…" />
-                </div>
-              </div>
+            <div class="subHead">
+              <div class="subTitle">Weekly Grid</div>
+              <div class="muted small" id="editHint">Click any cell to assign</div>
+            </div>
+            <div class="tableWrap">
+              <table class="grid" id="builderGrid">
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
 
-              <div class="tableWrap">
-                <table class="grid" id="providerGrid">
-                  <thead></thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-
-              <div class="hint">
-                MA is always Provider + Location + Time.
-                XR can be Provider + Location + Time OR Location-only + Time.
-                Staff grid is automatically filled from these assignments.
-              </div>
+          <!-- Provider Builder -->
+          <div class="subPanel wide">
+            <div class="subHead">
+              <div class="subTitle">Provider Builder</div>
+              <div class="muted small">MA = Provider+Location • XR = Provider+Location or Location-only</div>
             </div>
 
-            <!-- Staff Grid -->
-            <div id="builderStaffWrap" hidden>
-              <div class="subHead" style="gap:12px; flex-wrap:wrap;">
-                <div style="display:flex; flex-direction:column;">
-                  <div class="subTitle">Staff Grid</div>
-                  <div class="muted small" id="editHint">Click a cell to assign. Shift+Click to select a range.</div>
+            <div class="providerLayout">
+              <div class="providerBox">
+                <div class="providerBoxHead">
+                  <div class="providerBoxTitle">Providers</div>
+                  <button class="btn btnSmall btnGhost" id="btnAddProvider">Add</button>
                 </div>
-
-                <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-left:auto;">
-                  <div class="field" style="min-width:280px;">
-                    <label>Bulk template</label>
-                    <select id="bulkTemplate"></select>
-                  </div>
-
-                  <div class="field" style="min-width:210px;">
-                    <label>Selection</label>
-                    <div class="pill" id="selectionPill">None</div>
-                  </div>
-
-                  <button class="btn btnGhost" id="btnApplySelection">Apply to Selection</button>
-                  <button class="btn btnGhost" id="btnApplyRow">Apply to Row</button>
-                  <button class="btn btnGhost" id="btnApplyDay">Apply to Day</button>
-                  <button class="btn btnGhost" id="btnClearSelection">Clear Selection</button>
+                <div class="field" style="min-width:100%">
+                  <label>Quick add (one per line)</label>
+                  <textarea id="providerBulk" class="ta" placeholder="Dr. Lastname&#10;Dr. Another"></textarea>
+                  <button class="btn btnGhost" id="btnAddProviderBulk" style="margin-top:8px">Add Lines</button>
                 </div>
+                <div id="providerList" class="providerList"></div>
               </div>
 
-              <div class="tableWrap">
-                <table class="grid" id="builderGrid">
-                  <thead></thead>
-                  <tbody></tbody>
-                </table>
-              </div>
+              <div class="providerBox grow">
+                <div class="providerBoxHead">
+                  <div class="providerBoxTitle">Assignments</div>
+                  <div class="muted small">If XR per-provider is blank, Location XR applies.</div>
+                </div>
 
-              <div class="hint">
-                Tip: Click a cell, pick a template. Then you can bulk-apply it to a row/day/selection.
-                Keyboard: Enter re-uses last picked template on the current cell.
+                <div class="field" style="min-width:100%">
+                  <label>Location XR Coverage (location-only)</label>
+                  <div id="xrByLocation" class="xrByLocation"></div>
+                </div>
+
+                <div class="tableWrap" style="margin-top:12px">
+                  <table class="grid" id="providerAssignGrid">
+                    <thead></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+
+                <div class="hint">
+                  “Location” uses your codes: Wil, SFS, ELA, GLE, TZ, ENC, VAL, TO.
+                </div>
               </div>
             </div>
           </div>
+
         </div>
       </div>
     </section>
