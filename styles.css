@@ -370,3 +370,6 @@ input:focus, select:focus{
   gap:8px;
   background: linear-gradient(180deg, #fff, #fbfdff);
 }
+/* hard guarantee: hidden means hidden */
+[hidden] { display: none !important; }
+.modal[hidden] { display: none !important; }
