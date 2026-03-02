@@ -15,10 +15,8 @@ const LOCATIONS = [
 const state = {
   auth: { email: null, editor: false },
   view: "my",
-
   weeks: [],
   currentWeekOf: null,
-
   published: null,
   draft: null,
 };
@@ -55,7 +53,6 @@ async function loadAuth(){
     : `Not logged in`;
 
   $("#builderTab").style.display = state.auth.editor ? "" : "none";
-
   $("#btnLogin").style.display = state.auth.email ? "none" : "";
   $("#btnLogout").style.display = state.auth.email ? "" : "none";
 }
@@ -100,6 +97,13 @@ async function loadDraft(weekOf){
   }
 }
 
+async function getSchedule(weekOf, mode){
+  const res = await fetch(`./api/schedule?weekOf=${encodeURIComponent(weekOf)}&mode=${encodeURIComponent(mode)}`, { cache: "no-store" });
+  if(!res.ok) return null;
+  const data = await res.json();
+  return data.data || null;
+}
+
 async function saveSchedule(mode, payload){
   const res = await fetch("./api/schedule", {
     method: "POST",
@@ -109,7 +113,7 @@ async function saveSchedule(mode, payload){
   if(!res.ok) throw new Error(await res.text());
 }
 
-/* ---- Default roster/providers endpoints (Option C) ---- */
+/* ---- Default roster/providers (Option C) ---- */
 
 async function getDefaultRoster(){
   const res = await fetch("./api/roster", { cache: "no-store" });
@@ -170,7 +174,7 @@ function wireButtons(){
   $("#btnLogin").addEventListener("click", login);
   $("#btnLogout").addEventListener("click", logout);
 
-  // Import schedule CSV (existing)
+  // Import schedule CSV
   $("#btnImportCSV").addEventListener("click", ()=> $("#csvFile").click());
   $("#csvFile").addEventListener("change", async (e)=>{
     const f = e.target.files?.[0];
@@ -183,7 +187,7 @@ function wireButtons(){
 
       if(!state.weeks.includes(parsed.weekOf)){
         state.weeks.unshift(parsed.weekOf);
-        state.weeks = Array.from(new Set(state.weeks)).sort((a,b)=> a < b ? 1 : -1);
+        state.weeks = sortWeeksDesc(Array.from(new Set(state.weeks)));
       }
 
       renderWeekPickers();
@@ -286,7 +290,7 @@ function wireButtons(){
     renderBuilder();
   });
 
-  // Default roster/providers buttons (Option C)
+  // Defaults: roster
   $("#btnLoadDefaultRoster").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftWeek();
@@ -309,7 +313,6 @@ function wireButtons(){
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftWeek();
     if(!payload) return;
-
     if(!payload.roster?.length) return toast("Draft roster is empty.");
 
     try{
@@ -321,6 +324,7 @@ function wireButtons(){
     }
   });
 
+  // Defaults: providers
   $("#btnLoadDefaultProviders").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftWeek();
@@ -345,7 +349,11 @@ function wireButtons(){
     const payload = ensureDraftWeek();
     if(!payload) return;
 
-    const list = (payload.providers || []).map(p => (typeof p === "string" ? p : p?.name)).map(s=> (s||"").trim()).filter(Boolean);
+    const list = (payload.providers || [])
+      .map(p => (typeof p === "string" ? p : p?.name))
+      .map(s=> (s||"").trim())
+      .filter(Boolean);
+
     if(!list.length) return toast("No providers to save.");
 
     try{
@@ -357,7 +365,7 @@ function wireButtons(){
     }
   });
 
-  // New blank week (auto loads default roster + providers)
+  // New blank week (auto loads defaults)
   $("#btnNewBlankWeek").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
 
@@ -365,11 +373,68 @@ function wireButtons(){
     const base = (state.published && state.published.weekOf === week) ? state.published : null;
 
     state.draft = await createBlankDraftFromDefaults(week, base);
+
+    if(!state.weeks.includes(week)){
+      state.weeks = sortWeeksDesc(Array.from(new Set([week, ...state.weeks])));
+      renderWeekPickers();
+      setAllWeekPickers(week);
+    }
+
     toast(state.draft.roster.length ? "Blank draft created (defaults loaded)." : "Blank draft created (no defaults found).");
     renderAll();
   });
 
-  // Provider Builder buttons
+  // Clone prev published -> draft
+  $("#btnClonePrevPublished").addEventListener("click", async ()=>{
+    if(!state.auth.editor) return toast("Not authorized.");
+
+    const week = state.currentWeekOf;
+    const prevWeek = isoAddDays(week, -7);
+    const prevPublished = await getSchedule(prevWeek, "published");
+
+    if(!prevPublished) return toast(`No published schedule for ${prevWeek}.`);
+
+    state.draft = deepClone(prevPublished);
+    state.draft.weekOf = week;
+
+    // ensure required keys
+    state.draft.locations ||= LOCATIONS;
+    state.draft.providers = normalizeProviders(state.draft.providers || []);
+    state.draft.providerAssignments ||= {};
+    state.draft.xrLocationAssignments ||= {};
+
+    if(!state.weeks.includes(week)){
+      state.weeks = sortWeeksDesc(Array.from(new Set([week, ...state.weeks])));
+      renderWeekPickers();
+      setAllWeekPickers(week);
+    }
+
+    toast(`Cloned ${prevWeek} published → ${week} draft.`);
+    renderAll();
+  });
+
+  // Clone only provider assignments from prev published
+  $("#btnClonePrevAssignments").addEventListener("click", async ()=>{
+    if(!state.auth.editor) return toast("Not authorized.");
+    const payload = ensureDraftWeek();
+    if(!payload) return;
+
+    const week = state.currentWeekOf;
+    const prevWeek = isoAddDays(week, -7);
+    const prevPublished = await getSchedule(prevWeek, "published");
+
+    if(!prevPublished) return toast(`No published schedule for ${prevWeek}.`);
+
+    payload.providers = normalizeProviders(prevPublished.providers || payload.providers || []);
+    payload.providerAssignments = deepClone(prevPublished.providerAssignments || {});
+    payload.xrLocationAssignments = deepClone(prevPublished.xrLocationAssignments || {});
+    payload.locations ||= LOCATIONS;
+
+    toast(`Cloned provider assignments from ${prevWeek}.`);
+    renderBuilder();
+  });
+
+  // Provider add
   $("#btnAddProvider").addEventListener("click", ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftWeek();
@@ -377,14 +442,19 @@ function wireButtons(){
 
     const name = prompt("Provider name (ex: Dr. Pelton)");
     if(!name) return;
+
     payload.providers ||= [];
     payload.providers.push({ id: providerId(name), name: name.trim() });
+    payload.providers = normalizeProviders(payload.providers);
 
     payload.providerAssignments ||= {};
+    payload.xrLocationAssignments ||= {};
+
     toast("Provider added.");
     renderProviderBuilder(payload);
   });
 
+  // Provider bulk add
   $("#btnAddProviderBulk").addEventListener("click", ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftWeek();
@@ -407,10 +477,42 @@ function wireButtons(){
     });
 
     $("#providerBulk").value = "";
+    payload.providers = normalizeProviders(payload.providers);
+
     payload.providerAssignments ||= {};
     payload.xrLocationAssignments ||= {};
+
     toast(`Added ${added} provider(s).`);
     renderProviderBuilder(payload);
+  });
+
+  // Bulk apply to checked providers
+  $("#btnApplyBulk").addEventListener("click", ()=>{
+    if(!state.auth.editor) return toast("Not authorized.");
+    const payload = ensureDraftWeek();
+    if(!payload) return;
+
+    const loc = ($("#bulkLoc").value || "").trim();
+    const ma = ($("#bulkMA").value || "").trim();
+    const xr = ($("#bulkXR").value || "").trim();
+
+    if(!loc) return toast("Pick a bulk location.");
+    if(!ma) return toast("Pick a bulk MA.");
+
+    const checked = Array.from(document.querySelectorAll(".provPick:checked")).map(x=>x.dataset.pick);
+    if(!checked.length) return toast("Check at least one provider.");
+
+    payload.providerAssignments ||= {};
+
+    checked.forEach(pid=>{
+      payload.providerAssignments[pid] ||= {};
+      payload.providerAssignments[pid].locationCode = loc;
+      payload.providerAssignments[pid].maStaffId = ma;
+      if(xr) payload.providerAssignments[pid].xrStaffId = xr;
+    });
+
+    toast(`Applied to ${checked.length} provider(s).`);
+    renderProviderAssignGrid(payload);
   });
 
   // Filters
@@ -584,7 +686,6 @@ function renderBuilder(){
     pub ? "No draft loaded (published exists)" :
     "No data loaded for this week";
 
-  // Keep builder clean: no auto-clone anymore. Alex uses New Blank Week.
   const payload = ensureDraftWeek(false);
   if(!payload){
     renderEmptyBuilder();
@@ -620,10 +721,10 @@ function ensureDraftWeek(showToastOnFail=true){
   state.draft.roster ||= [];
 
   // Provider builder state
+  state.draft.locations ||= LOCATIONS;
   state.draft.providers ||= [];
   state.draft.providerAssignments ||= {};
   state.draft.xrLocationAssignments ||= {};
-  state.draft.locations ||= LOCATIONS;
 
   return state.draft;
 }
@@ -638,11 +739,11 @@ function renderProviderBuilder(payload){
 
   renderProviderList(payload);
   renderXRByLocation(payload);
+  renderBulkControls(payload);
   renderProviderAssignGrid(payload);
 }
 
 function normalizeProviders(list){
-  // Accept either strings or objects, normalize to {id,name}
   const out = [];
   const seen = new Set();
   list.forEach(p=>{
@@ -694,7 +795,6 @@ function renderProviderList(payload){
 
 function renderXRByLocation(payload){
   const wrap = $("#xrByLocation");
-
   const xrOptions = rosterOptions(payload, "XR", true);
 
   wrap.innerHTML = payload.locations.map(loc=>{
@@ -716,11 +816,35 @@ function renderXRByLocation(payload){
     sel.addEventListener("change", ()=>{
       const code = sel.dataset.xrLoc;
       const val = sel.value || "";
-      if(!payload.xrLocationAssignments) payload.xrLocationAssignments = {};
+      payload.xrLocationAssignments ||= {};
       if(!val) delete payload.xrLocationAssignments[code];
       else payload.xrLocationAssignments[code] = val;
     });
   });
+}
+
+function renderBulkControls(payload){
+  const locSel = $("#bulkLoc");
+  const maSel = $("#bulkMA");
+  const xrSel = $("#bulkXR");
+  if(!locSel || !maSel || !xrSel) return;
+
+  locSel.innerHTML = [
+    `<option value="">— Select —</option>`,
+    ...payload.locations.map(l=>`<option value="${l.code}">${escapeHtml(l.name)} (${escapeHtml(l.code)})</option>`)
+  ].join("");
+
+  const maList = (payload.roster || []).filter(r=>r.role==="MA").slice().sort((a,b)=>a.name.localeCompare(b.name));
+  maSel.innerHTML = [
+    `<option value="">— Select —</option>`,
+    ...maList.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`)
+  ].join("");
+
+  const xrList = (payload.roster || []).filter(r=>r.role==="XR").slice().sort((a,b)=>a.name.localeCompare(b.name));
+  xrSel.innerHTML = [
+    `<option value="">— None —</option>`,
+    ...xrList.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`)
+  ].join("");
 }
 
 function renderProviderAssignGrid(payload){
@@ -736,6 +860,7 @@ function renderProviderAssignGrid(payload){
 
   thead.innerHTML = `
     <tr>
+      <th style="min-width:52px;text-align:left;">✓</th>
       <th style="min-width:260px;text-align:left;">Provider</th>
       <th style="min-width:220px;text-align:left;">Location</th>
       <th style="min-width:260px;text-align:left;">MA</th>
@@ -755,6 +880,9 @@ function renderProviderAssignGrid(payload){
     const a = payload.providerAssignments?.[p.id] || {};
     return `
       <tr>
+        <td>
+          <input type="checkbox" class="provPick" data-pick="${p.id}" />
+        </td>
         <td class="nameCell">${escapeHtml(p.name)}</td>
         <td>
           <select data-assign-loc="${p.id}">${locOptions(a.locationCode || "")}</select>
@@ -828,7 +956,7 @@ function ensureEntriesForRoster(payload){
 function renderRosterEmails(payload){
   const wrap = $("#rosterEmailList");
   if(!payload.roster.length){
-    wrap.innerHTML = `<div class="muted">No roster loaded. Save/Load default roster or import schedule.</div>`;
+    wrap.innerHTML = `<div class="muted">No roster loaded. Load/Save default roster or import schedule.</div>`;
     return;
   }
 
@@ -1024,29 +1152,24 @@ function openAddTemplateModal(){
 function validate(payload){
   const issues = [];
 
-  // roster emails
   payload.roster.forEach(r=>{
     if(!r.email) issues.push(`${r.name} missing email`);
   });
 
-  // assignments grid
   payload.roster.forEach(r=>{
     const e = payload.entries?.[r.id] || {};
     DAYS.forEach(d=>{
       const v = e[d];
-      if(v === undefined || v === null || v === ""){
-        issues.push(`${r.name} missing ${d}`);
-      }
+      if(v === undefined || v === null || v === "") issues.push(`${r.name} missing ${d}`);
     });
   });
 
-  // provider builder basics (soft validation)
   if(payload.providers?.length){
     payload.providers.forEach(p=>{
       const a = payload.providerAssignments?.[p.id];
       if(!a?.locationCode) issues.push(`Provider "${p.name}" missing location`);
       if(!a?.maStaffId) issues.push(`Provider "${p.name}" missing MA`);
-      // XR can be provider-specific OR location-only, so we only warn if neither exists
+
       const locXR = payload.xrLocationAssignments?.[a?.locationCode] || "";
       const anyXR = (a?.xrStaffId || locXR);
       if(!anyXR) issues.push(`Provider "${p.name}" missing XR (set per provider or location)`);
@@ -1099,7 +1222,6 @@ function parseScheduleCSV(text){
   };
   if(Object.values(dayIdx).some(i=>i<0)) throw new Error("Missing weekday headers.");
 
-  // Find first date above header like "03/02/2026- 03/06/2026"
   let weekOf = null;
   for(let i=headerIdx-1; i>=0; i--){
     const s = (rows[i][0]||"").trim();
@@ -1158,8 +1280,6 @@ function parseScheduleCSV(text){
     roster,
     templates,
     entries,
-
-    // Provider Builder defaults (kept for week)
     locations: LOCATIONS,
     providers: [],
     providerAssignments: {},
@@ -1167,12 +1287,11 @@ function parseScheduleCSV(text){
   };
 }
 
-/* ---------------- Create Blank Draft from defaults (Option C) ---------------- */
+/* ---------------- Create Blank Draft from defaults ---------------- */
 
 async function createBlankDraftFromDefaults(weekOf, seedFromPublished){
   const base = seedFromPublished ? deepClone(seedFromPublished) : null;
 
-  // Roster
   let roster = base?.roster?.length ? base.roster.map(r=>({
     id: r.id, name: r.name, role: r.role, email: r.email || ""
   })) : [];
@@ -1188,7 +1307,6 @@ async function createBlankDraftFromDefaults(weekOf, seedFromPublished){
     }
   }
 
-  // Providers
   let providers = base?.providers?.length ? normalizeProviders(base.providers) : [];
   if(!providers.length){
     try{
@@ -1201,12 +1319,10 @@ async function createBlankDraftFromDefaults(weekOf, seedFromPublished){
     }
   }
 
-  // Templates
   const templates = base?.templates?.length
     ? base.templates.map(t=> normalizeTemplate({ id: t.id, raw: t.raw }))
     : defaultTemplates().map(t=> normalizeTemplate(t));
 
-  // Entries
   const entries = {};
   roster.forEach(r=>{
     entries[r.id] = {};
@@ -1221,8 +1337,6 @@ async function createBlankDraftFromDefaults(weekOf, seedFromPublished){
     roster,
     templates,
     entries,
-
-    // Provider builder state
     locations: LOCATIONS,
     providers,
     providerAssignments,
@@ -1341,6 +1455,12 @@ function mondayOf(date){
   return d.toISOString().slice(0,10);
 }
 
+function isoAddDays(iso, days){
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0,10);
+}
+
 function dayName(date){
   const idx = date.getDay();
   const map = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -1376,6 +1496,10 @@ function idForRaw(raw){
 
 function deepClone(obj){
   return JSON.parse(JSON.stringify(obj));
+}
+
+function sortWeeksDesc(arr){
+  return (arr || []).slice().sort((a,b)=> a < b ? 1 : -1);
 }
 
 function toast(msg){
