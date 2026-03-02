@@ -108,6 +108,8 @@
           <h1>Builder</h1>
           <div class="panelActions">
             <button class="btn btnGhost" id="btnNewBlankWeek">New Blank Week</button>
+            <button class="btn btnGhost" id="btnClonePrevPublished">Clone Prev Published → Draft</button>
+            <button class="btn btnGhost" id="btnClonePrevAssignments">Clone Prev Provider Assignments</button>
 
             <span class="divider" aria-hidden="true"></span>
 
@@ -217,6 +219,28 @@
                   <div id="xrByLocation" class="xrByLocation"></div>
                 </div>
 
+                <div class="bulkBar">
+                  <div class="field">
+                    <label>Bulk Location</label>
+                    <select id="bulkLoc"></select>
+                  </div>
+                  <div class="field">
+                    <label>Bulk MA</label>
+                    <select id="bulkMA"></select>
+                  </div>
+                  <div class="field">
+                    <label>Bulk XR (optional)</label>
+                    <select id="bulkXR"></select>
+                  </div>
+                  <div class="field">
+                    <label>&nbsp;</label>
+                    <button class="btn btnGhost" id="btnApplyBulk">Apply to checked</button>
+                  </div>
+                </div>
+                <div class="hint" style="margin-top:6px">
+                  Check providers in the grid, then apply location + MA (and XR if you want).
+                </div>
+
                 <div class="tableWrap" style="margin-top:12px">
                   <table class="grid" id="providerAssignGrid">
                     <thead></thead>
@@ -225,7 +249,7 @@
                 </div>
 
                 <div class="hint">
-                  “Location” uses your codes: Wil, SFS, ELA, GLE, TZ, ENC, VAL, TO.
+                  Locations: Wilshire (WIL), Santa Fe Springs (SFS), East LA (ELA), Glendale (GLE), Tarzana (TZ), Encino (ENC), Valencia (VAL), Thousand Oaks (TO).
                 </div>
               </div>
             </div>
