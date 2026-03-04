@@ -1,516 +1,233 @@
-:root{
-  --ink:#111827;
-  --char:#1f2937;
-  --muted:#6b7280;
-
-  --accent:#f36a1f;
-  --accent2:#ff8a3d;
-
-  --bg:#f5f6f8;
-  --panel:#ffffff;
-
-  --line: rgba(17,24,39,.12);
-  --line2: rgba(17,24,39,.18);
-  --shadow: 0 10px 28px rgba(2,6,23,.10);
-
-  --r-lg:18px;
-  --r-md:14px;
-
-  --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
-}
-
-*{ box-sizing:border-box; }
-html,body{ height:100%; }
-body{
-  margin:0;
-  font-family: var(--font);
-  color: var(--ink);
-  background:
-    radial-gradient(1100px 560px at 10% -10%, rgba(243,106,31,.12), transparent 55%),
-    radial-gradient(900px 520px at 90% 0%, rgba(17,24,39,.08), transparent 50%),
-    var(--bg);
-}
-
-[hidden]{ display:none !important; }
-
-.wrap{
-  max-width: 1320px;
-  margin: 18px auto 60px;
-  padding: 0 14px;
-}
-
-.panel{
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow);
-  overflow:hidden;
-}
-
-.panelHead{
-  padding: 16px 16px 10px;
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:12px;
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(17,24,39,.04), transparent);
-}
-
-.panelHead h1{
-  margin:0;
-  font-size: 18px;
-  letter-spacing: .2px;
-  color: var(--char);
-}
-
-.panelActions{
-  display:flex;
-  gap:8px;
-  align-items:center;
-  flex-wrap:wrap;
-}
-
-.view{ margin-top: 14px; }
-
-.topbar{
-  position: sticky;
-  top:0;
-  z-index: 30;
-  background: rgba(245,246,248,.88);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--line);
-}
-
-.brand{
-  display:flex;
-  align-items:center;
-  gap: 12px;
-  padding: 12px 14px 8px;
-}
-
-.brandLogo{
-  height: 38px;
-  width: auto;
-  display:block;
-  object-fit: contain;
-  filter: drop-shadow(0 8px 14px rgba(2,6,23,.10));
-}
-
-.brandTitle{
-  font-weight: 900;
-  color: var(--char);
-  letter-spacing:.2px;
-}
-.brandSub{
-  font-size: 12px;
-  color: var(--muted);
-  margin-top:2px;
-}
-
-.tabs{
-  display:flex;
-  gap:8px;
-  padding: 0 14px 12px;
-  overflow:auto;
-}
-
-.tab{
-  border: 1px solid var(--line);
-  background: rgba(255,255,255,.78);
-  color: var(--char);
-  padding: 10px 12px;
-  border-radius: 999px;
-  font-weight: 900;
-  cursor:pointer;
-  white-space:nowrap;
-}
-
-.tab.is-active{
-  background: linear-gradient(135deg, rgba(243,106,31,.16), rgba(17,24,39,.08));
-  border-color: rgba(243,106,31,.55);
-  box-shadow: 0 10px 22px rgba(2,6,23,.06);
-}
-
-.row, .filters, .builderTop{
-  display:flex;
-  gap: 12px;
-  align-items:flex-end;
-  padding: 12px 16px 14px;
-  flex-wrap:wrap;
-}
-
-.field{
-  display:flex;
-  flex-direction:column;
-  gap:6px;
-  min-width: 180px;
-}
-.field.grow{ flex: 1; min-width: 220px; }
-
-label{
-  font-size: 12px;
-  font-weight: 900;
-  color: rgba(31,41,55,.78);
-  letter-spacing: .2px;
-}
-
-input[type="text"], input[type="email"], select{
-  height: 44px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: #fff;
-  padding: 0 12px;
-  outline:none;
-  color: var(--ink);
-  font-weight: 700;
-}
-
-textarea.ta{
-  min-height: 86px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: #fff;
-  padding: 10px 12px;
-  outline:none;
-  color: var(--ink);
-  font-weight: 700;
-  resize: vertical;
-}
-
-input:focus, select:focus, textarea:focus{
-  border-color: rgba(243,106,31,.70);
-  box-shadow: 0 0 0 4px rgba(243,106,31,.16);
-}
-
-.pill{
-  height: 44px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: rgba(17,24,39,.03);
-  display:flex;
-  align-items:center;
-  padding: 0 12px;
-  color: var(--char);
-  font-weight: 900;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-
-.btn{
-  height: 44px;
-  padding: 0 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(243,106,31,.45);
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  color: #fff;
-  font-weight: 900;
-  cursor:pointer;
-  box-shadow: 0 12px 24px rgba(243,106,31,.18);
-}
-.btn:hover{ filter: brightness(0.98); }
-.btn:active{ transform: translateY(1px); }
-
-.btnGhost{
-  background: #fff;
-  color: var(--char);
-  border: 1px solid var(--line2);
-  box-shadow: none;
-}
-.btnGhost:hover{
-  border-color: rgba(243,106,31,.45);
-  box-shadow: 0 10px 18px rgba(2,6,23,.06);
-}
-
-.btnSmall{ height: 34px; padding: 0 10px; border-radius: 10px; font-weight: 900; font-size: 12px; }
-
-.iconBtn{
-  height: 36px;
-  min-width: 36px;
-  padding: 0 10px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background:#fff;
-  cursor:pointer;
-  font-weight: 900;
-}
-.iconBtn:hover{ border-color: rgba(243,106,31,.45); }
-
-.divider{
-  width:1px;
-  height:28px;
-  background: var(--line);
-  margin: 0 8px;
-}
-
-.muted{ color: var(--muted); }
-.small{ font-size: 12px; }
-.hint{ font-size: 12px; color: rgba(17,24,39,.62); padding: 10px 0 0; line-height:1.35; }
-
-.cards{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-  padding: 12px 16px 16px;
-}
-
-.card{
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: #fff;
-  box-shadow: 0 10px 22px rgba(2,6,23,.04);
-}
-
-.cardTitle{
-  padding: 12px 14px 8px;
-  font-weight: 900;
-  color: var(--char);
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(243,106,31,.08), transparent);
-}
-
-.cardBody{ padding: 12px 14px 14px; }
-
-.weekCards{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-}
-
-.dayCard{
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgba(17,24,39,.02);
-  padding: 12px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap: 12px;
-}
-
-.dayName{ font-weight: 900; color: var(--char); }
-.dayValue{ font-weight: 900; color: rgba(31,41,55,.92); text-align:right; }
-
-.tableWrap{
-  border-top: 1px solid var(--line);
-}
-
-.tableWrapX{
-  overflow-x:auto;   /* ONLY horizontal scroll */
-  overflow-y:visible; /* NO inner vertical scroll */
-}
-
-table.grid{
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 12px;
-}
-
-.grid th, .grid td{
-  border-bottom: 1px solid var(--line);
-  padding: 10px 10px;
-  vertical-align: top;
-  background:#fff;
-}
-
-.grid thead th{
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: linear-gradient(180deg, rgba(17,24,39,.05), rgba(255,255,255,.96));
-  font-weight: 900;
-  color: rgba(31,41,55,.90);
-}
-
-.nameCell{ font-weight: 900; color: rgba(31,41,55,.95); }
-
-.roleTag{
-  display:inline-flex;
-  align-items:center;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(243,106,31,.10);
-  border: 1px solid rgba(243,106,31,.22);
-  color: var(--char);
-  font-weight: 900;
-  font-size: 12px;
-  margin-left: 8px;
-}
-
-/* Builder layout: Weekly grid is full width below */
-.builderGrid{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-  padding: 14px 16px 16px;
-}
-
-.subPanel{
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background:#fff;
-  padding: 12px;
-  box-shadow: 0 10px 22px rgba(2,6,23,.04);
-}
-
-.subPanel.full{
-  grid-column: 1 / -1;
-}
-
-.subHead{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-  margin-bottom: 10px;
-}
-
-.subTitle{
-  font-weight: 1000;
-  color: var(--char);
-}
-
-.templateList{
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-  max-height: 52vh;
-  overflow:auto;
-  padding-right: 4px;
-}
-
-.templateItem{
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgba(17,24,39,.02);
-  padding: 10px;
-}
-
-.templateTop{
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:10px;
-}
-
-.templateName{ font-weight: 900; color: rgba(31,41,55,.95); }
-.templateMeta{ font-size: 12px; color: rgba(107,114,128,.92); margin-top: 2px; }
-
-.cellBtn{
-  width: 100%;
-  min-height: 42px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: rgba(17,24,39,.02);
-  cursor:pointer;
-  text-align:left;
-  padding: 8px 10px;
-  font-weight: 900;
-  color: rgba(31,41,55,.92);
-}
-.cellBtn:hover{ border-color: rgba(243,106,31,.45); }
-
-/* Providers list */
-.providerList{
-  display:flex;
-  flex-direction:column;
-  gap:8px;
-  margin-top:12px;
-  max-height: 52vh;
-  overflow:auto;
-  padding-right:4px;
-}
-
-.providerRow{
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(17,24,39,.02);
-  padding: 10px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-}
-
-.toast{
-  position: sticky;
-  top: 72px;
-  z-index: 20;
-  margin: 12px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(243,106,31,.28);
-  background: rgba(243,106,31,.12);
-  color: var(--char);
-  font-weight: 900;
-  box-shadow: 0 12px 24px rgba(2,6,23,.06);
-}
-
-.modal{
-  position: fixed;
-  inset: 0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  padding: 12px;
-  z-index: 99;
-}
-
-.modalBackdrop{
-  position:absolute;
-  inset:0;
-  background: rgba(2,6,23,.55);
-}
-
-.modalCard{
-  position: relative;
-  width: min(760px, 100%);
-  max-height: calc(100% - 22px);
-  overflow:auto;
-  border-radius: 18px;
-  background:#fff;
-  border: 1px solid rgba(255,255,255,.15);
-  box-shadow: 0 28px 70px rgba(2,6,23,.35);
-}
-
-.modalHead{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap: 14px;
-  padding: 14px 16px 10px;
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(243,106,31,.10), transparent);
-}
-
-.modalTitle{ font-weight: 1000; color: var(--char); }
-.modalBody{ padding: 14px; }
-.modalFoot{
-  padding: 12px 14px 14px;
-  display:flex;
-  justify-content:flex-end;
-  gap: 8px;
-  border-top: 1px solid var(--line);
-}
-
-/* Desktop: 3 columns for roster/templates/providers */
-@media (min-width: 980px){
-  .cards{ grid-template-columns: 1fr 1fr; }
-  .weekCards{ grid-template-columns: 1fr 1fr; }
-  .builderGrid{
-    grid-template-columns: 1fr 1fr 1fr;
-    align-items:start;
-  }
-  .subPanel.full{
-    grid-column: 1 / -1;
-  }
-}
-
-/* Mobile: stack */
-@media (max-width: 520px){
-  .panelActions{ width:100%; justify-content:flex-start; }
-  .field{ min-width: 100%; }
-  .brandLogo{ height: 34px; }
-}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LA Orthos | MA/XR Schedule</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img class="brandLogo" src="./assets/laorthos-logo.png" alt="Los Angeles Orthopedic Surgery Specialists" />
+      <div class="brandText">
+        <div class="brandTitle">MA/XR Schedule</div>
+        <div class="brandSub" id="authLine">Loading…</div>
+      </div>
+    </div>
+
+    <nav class="tabs" role="tablist" aria-label="Schedule views">
+      <button class="tab is-active" data-view="my" role="tab" aria-selected="true">My Schedule</button>
+      <button class="tab" data-view="everyone" role="tab" aria-selected="false">Everyone</button>
+      <button class="tab" data-view="builder" role="tab" aria-selected="false" id="builderTab" style="display:none;">Builder</button>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section id="toast" class="toast" hidden></section>
+
+    <!-- MY -->
+    <section id="view-my" class="view">
+      <div class="panel">
+        <div class="panelHead">
+          <h1>My Schedule</h1>
+          <div class="panelActions">
+            <button class="btn btnGhost" id="btnLogin">Login</button>
+            <button class="btn btnGhost" id="btnLogout">Logout</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label>Week of (Mon)</label>
+            <select id="weekPickMy"></select>
+          </div>
+          <div class="field grow">
+            <label>Matched staff</label>
+            <div class="pill" id="myMatchPill">—</div>
+          </div>
+        </div>
+
+        <div class="cards">
+          <div class="card">
+            <div class="cardTitle">Today</div>
+            <div id="todayCard" class="cardBody muted">Loading…</div>
+          </div>
+
+          <div class="card">
+            <div class="cardTitle">This Week</div>
+            <div id="weekCards" class="weekCards"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EVERYONE -->
+    <section id="view-everyone" class="view" hidden>
+      <div class="panel">
+        <div class="panelHead">
+          <h1>Everyone</h1>
+          <div class="panelActions">
+            <button class="btn btnGhost" id="btnPrint">Print</button>
+            <button class="btn btnGhost" id="btnExportCSV">Export CSV</button>
+          </div>
+        </div>
+
+        <div class="filters">
+          <div class="field">
+            <label>Week of (Mon)</label>
+            <select id="weekPickEveryone"></select>
+          </div>
+          <div class="field">
+            <label>Role</label>
+            <select id="roleFilter">
+              <option value="ALL">All</option>
+              <option value="MA">MA</option>
+              <option value="XR">XR</option>
+            </select>
+          </div>
+          <div class="field grow">
+            <label>Search</label>
+            <input id="searchFilter" type="text" placeholder="Type a name…" />
+          </div>
+        </div>
+
+        <div class="tableWrap tableWrapX">
+          <table class="grid" id="everyoneGrid">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- BUILDER -->
+    <section id="view-builder" class="view" hidden>
+      <div class="panel">
+        <div class="panelHead">
+          <h1>Builder</h1>
+          <div class="panelActions">
+            <button class="btn btnGhost" id="btnImportScheduleCSV">Import Schedule CSV</button>
+            <button class="btn btnGhost" id="btnLoadDraft">Load Draft</button>
+            <button class="btn btnGhost" id="btnLoadPublished">Load Published</button>
+
+            <span class="divider" aria-hidden="true"></span>
+
+            <button class="btn btnGhost" id="btnImportStaffCSV">Import Staff CSV</button>
+            <button class="btn btnGhost" id="btnLoadStaffFromRepo">Load Staff from Repo</button>
+            <button class="btn btnGhost" id="btnAddStaff">Add Staff</button>
+
+            <span class="divider" aria-hidden="true"></span>
+
+            <button class="btn btnGhost" id="btnImportProvidersCSV">Import Providers CSV</button>
+            <button class="btn btnGhost" id="btnLoadProvidersFromRepo">Load Providers from Repo</button>
+            <button class="btn btnGhost" id="btnAddProvider">Add Provider</button>
+
+            <span class="divider" aria-hidden="true"></span>
+
+            <button class="btn btnGhost" id="btnLoadDefaultRoster">Load Default Roster</button>
+            <button class="btn btnGhost" id="btnSaveDefaultRoster">Save Default Roster</button>
+            <button class="btn btnGhost" id="btnLoadDefaultProviders">Load Default Providers</button>
+            <button class="btn btnGhost" id="btnSaveDefaultProviders">Save Default Providers</button>
+
+            <span class="divider" aria-hidden="true"></span>
+
+            <button class="btn btnGhost" id="btnClearWeek">Clear Week</button>
+            <button class="btn btnGhost" id="btnValidate">Validate</button>
+
+            <span class="divider" aria-hidden="true"></span>
+
+            <button class="btn" id="btnSaveDraft">Save Draft</button>
+            <button class="btn" id="btnPublish">Publish</button>
+          </div>
+        </div>
+
+        <div class="builderTop">
+          <div class="field">
+            <label>Week of (Mon)</label>
+            <select id="weekPickBuilder"></select>
+          </div>
+          <div class="field grow">
+            <label>Status</label>
+            <div class="pill" id="builderStatus">—</div>
+          </div>
+          <div class="field">
+            <label>How it works</label>
+            <div class="pill pillHint">Click a cell → choose Location/Provider/Times</div>
+          </div>
+        </div>
+
+        <div class="builderGrid">
+          <div class="subPanel">
+            <div class="subHead">
+              <div class="subTitle">Roster</div>
+              <button class="btn btnSmall btnGhost" id="btnAutoGuessEmails">Auto-guess</button>
+            </div>
+            <div id="rosterEmailList" class="templateList"></div>
+            <div class="hint">“My Schedule” matches: login email → roster email.</div>
+          </div>
+
+          <div class="subPanel">
+            <div class="subHead">
+              <div class="subTitle">Providers</div>
+              <div class="muted small">Import + add anytime</div>
+            </div>
+
+            <div class="field" style="min-width:100%">
+              <label>Bulk add (one per line)</label>
+              <textarea id="providerBulk" class="ta" placeholder="Dr. Pelton&#10;Dr. Longacre"></textarea>
+              <button class="btn btnGhost" id="btnAddProviderBulk" style="margin-top:8px">Add Lines</button>
+            </div>
+
+            <div id="providerList" class="providerList"></div>
+          </div>
+
+          <div class="subPanel">
+            <div class="subHead">
+              <div class="subTitle">Locations</div>
+              <div class="muted small">Preloaded</div>
+            </div>
+            <div id="locationList" class="locationList"></div>
+            <div class="hint">Uses abbreviations (WIL, SFS, ELA, GLE, TZ, ENC, VAL, TO).</div>
+          </div>
+
+          <!-- Weekly grid full width -->
+          <div class="subPanel full">
+            <div class="subHead">
+              <div class="subTitle">Weekly Grid</div>
+              <div class="muted small">One assignment per staff per day</div>
+            </div>
+
+            <div class="tableWrap tableWrapX">
+              <table class="grid" id="builderGrid">
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal -->
+  <div class="modal" id="modal" hidden>
+    <div class="modalBackdrop" data-close="1"></div>
+    <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modalHead">
+        <div id="modalTitle" class="modalTitle">Modal</div>
+        <button class="iconBtn" data-close="1" aria-label="Close">✕</button>
+      </div>
+      <div class="modalBody" id="modalBody"></div>
+      <div class="modalFoot" id="modalFoot"></div>
+    </div>
+  </div>
+
+  <input id="scheduleFile" type="file" accept=".csv,text/csv" hidden />
+  <input id="staffFile" type="file" accept=".csv,text/csv" hidden />
+  <input id="providersFile" type="file" accept=".csv,text/csv" hidden />
+
+  <script src="./app.js"></script>
+</body>
+</html>
