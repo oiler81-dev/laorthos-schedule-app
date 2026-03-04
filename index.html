@@ -132,6 +132,11 @@
 
             <span class="divider" aria-hidden="true"></span>
 
+            <button class="btn btnGhost" id="btnClearWeek">Clear Week</button>
+            <button class="btn btnGhost" id="btnValidate">Validate</button>
+
+            <span class="divider" aria-hidden="true"></span>
+
             <button class="btn" id="btnSaveDraft">Save Draft</button>
             <button class="btn" id="btnPublish">Publish</button>
           </div>
@@ -147,12 +152,11 @@
             <div class="pill" id="builderStatus">—</div>
           </div>
           <div class="field">
-            <label>Validate</label>
-            <button class="btn btnGhost" id="btnValidate">Run</button>
+            <label>How it works</label>
+            <div class="pill pillHint">Click a cell → choose Location/Provider/Times</div>
           </div>
         </div>
 
-        <!-- Builder layout: two columns on desktop, stacks on mobile -->
         <div class="builderGrid">
           <div class="subPanel">
             <div class="subHead">
@@ -161,15 +165,6 @@
             </div>
             <div id="rosterEmailList" class="templateList"></div>
             <div class="hint">“My Schedule” matches: login email → roster email.</div>
-          </div>
-
-          <div class="subPanel">
-            <div class="subHead">
-              <div class="subTitle">Templates</div>
-              <button class="btn btnSmall btnGhost" id="btnAddTemplate">Add</button>
-            </div>
-            <div id="templateList" class="templateList"></div>
-            <div class="hint">Click a cell in Weekly Grid to apply a template.</div>
           </div>
 
           <div class="subPanel">
@@ -187,12 +182,22 @@
             <div id="providerList" class="providerList"></div>
           </div>
 
-          <!-- Weekly grid is now FULL WIDTH and below -->
+          <div class="subPanel">
+            <div class="subHead">
+              <div class="subTitle">Locations</div>
+              <div class="muted small">Preloaded</div>
+            </div>
+            <div id="locationList" class="locationList"></div>
+            <div class="hint">Uses abbreviations (WIL, SFS, ELA, GLE, TZ, ENC, VAL, TO).</div>
+          </div>
+
+          <!-- Weekly grid full width -->
           <div class="subPanel full">
             <div class="subHead">
               <div class="subTitle">Weekly Grid</div>
-              <div class="muted small">No inner vertical scroll. Page scroll only.</div>
+              <div class="muted small">One assignment per staff per day</div>
             </div>
+
             <div class="tableWrap tableWrapX">
               <table class="grid" id="builderGrid">
                 <thead></thead>
