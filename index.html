@@ -9,7 +9,7 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <img class="brandLogo" src="./assets/laorthos-logo.png" alt="Los Angeles Orthopedic Surgery Specialists" />
+      <img class="logoImg" src="./assets/laorthos-logo.png" alt="LA Orthos" />
       <div class="brandText">
         <div class="brandTitle">MA/XR Schedule</div>
         <div class="brandSub" id="authLine">Loading…</div>
@@ -92,7 +92,7 @@
           </div>
         </div>
 
-        <div class="tableWrap tableWrapX">
+        <div class="tableWrap">
           <table class="grid" id="everyoneGrid">
             <thead></thead>
             <tbody></tbody>
@@ -105,38 +105,16 @@
     <section id="view-builder" class="view" hidden>
       <div class="panel">
         <div class="panelHead">
-          <h1>Builder</h1>
+          <h1>Builder (Provider-driven)</h1>
           <div class="panelActions">
-            <button class="btn btnGhost" id="btnImportScheduleCSV">Import Schedule CSV</button>
-            <button class="btn btnGhost" id="btnLoadDraft">Load Draft</button>
-            <button class="btn btnGhost" id="btnLoadPublished">Load Published</button>
-
-            <span class="divider" aria-hidden="true"></span>
-
             <button class="btn btnGhost" id="btnImportStaffCSV">Import Staff CSV</button>
             <button class="btn btnGhost" id="btnLoadStaffFromRepo">Load Staff from Repo</button>
-            <button class="btn btnGhost" id="btnAddStaff">Add Staff</button>
-
-            <span class="divider" aria-hidden="true"></span>
 
             <button class="btn btnGhost" id="btnImportProvidersCSV">Import Providers CSV</button>
             <button class="btn btnGhost" id="btnLoadProvidersFromRepo">Load Providers from Repo</button>
-            <button class="btn btnGhost" id="btnAddProvider">Add Provider</button>
 
-            <span class="divider" aria-hidden="true"></span>
-
-            <button class="btn btnGhost" id="btnLoadDefaultRoster">Load Default Roster</button>
-            <button class="btn btnGhost" id="btnSaveDefaultRoster">Save Default Roster</button>
-            <button class="btn btnGhost" id="btnLoadDefaultProviders">Load Default Providers</button>
-            <button class="btn btnGhost" id="btnSaveDefaultProviders">Save Default Providers</button>
-
-            <span class="divider" aria-hidden="true"></span>
-
-            <button class="btn btnGhost" id="btnClearWeek">Clear Week</button>
-            <button class="btn btnGhost" id="btnValidate">Validate</button>
-
-            <span class="divider" aria-hidden="true"></span>
-
+            <button class="btn btnGhost" id="btnLoadDraft">Load Draft</button>
+            <button class="btn btnGhost" id="btnLoadPublished">Load Published</button>
             <button class="btn" id="btnSaveDraft">Save Draft</button>
             <button class="btn" id="btnPublish">Publish</button>
           </div>
@@ -152,61 +130,107 @@
             <div class="pill" id="builderStatus">—</div>
           </div>
           <div class="field">
-            <label>How it works</label>
-            <div class="pill pillHint">Click a cell → choose Location/Provider/Times</div>
+            <label>Validate</label>
+            <button class="btn btnGhost" id="btnValidate">Run</button>
+          </div>
+          <div class="field">
+            <label>Reset</label>
+            <button class="btn btnGhost" id="btnClearWeek">Clear Draft Week</button>
           </div>
         </div>
 
-        <div class="builderGrid">
-          <div class="subPanel">
-            <div class="subHead">
-              <div class="subTitle">Roster</div>
-              <button class="btn btnSmall btnGhost" id="btnAutoGuessEmails">Auto-guess</button>
-            </div>
-            <div id="rosterEmailList" class="templateList"></div>
-            <div class="hint">“My Schedule” matches: login email → roster email.</div>
-          </div>
-
-          <div class="subPanel">
-            <div class="subHead">
-              <div class="subTitle">Providers</div>
-              <div class="muted small">Import + add anytime</div>
+        <div class="builderShell">
+          <!-- LEFT: Providers -->
+          <aside class="side">
+            <div class="sideHead">
+              <div>
+                <div class="sideTitle">Providers</div>
+                <div class="muted small">Green = complete</div>
+              </div>
+              <div class="sideActions">
+                <button class="btn btnSmall btnGhost" id="btnAddProvider">Add</button>
+              </div>
             </div>
 
-            <div class="field" style="min-width:100%">
-              <label>Bulk add (one per line)</label>
-              <textarea id="providerBulk" class="ta" placeholder="Dr. Pelton&#10;Dr. Longacre"></textarea>
-              <button class="btn btnGhost" id="btnAddProviderBulk" style="margin-top:8px">Add Lines</button>
+            <div class="field" style="margin-top:10px">
+              <label>Search provider</label>
+              <input id="providerSearch" type="text" placeholder="Type to filter…" />
             </div>
 
-            <div id="providerList" class="providerList"></div>
-          </div>
+            <div class="providerList" id="providerList"></div>
 
-          <div class="subPanel">
-            <div class="subHead">
-              <div class="subTitle">Locations</div>
-              <div class="muted small">Preloaded</div>
-            </div>
-            <div id="locationList" class="locationList"></div>
-            <div class="hint">Uses abbreviations (WIL, SFS, ELA, GLE, TZ, ENC, VAL, TO).</div>
-          </div>
+            <div class="divider"></div>
 
-          <!-- Weekly grid full width -->
-          <div class="subPanel full">
-            <div class="subHead">
-              <div class="subTitle">Weekly Grid</div>
-              <div class="muted small">One assignment per staff per day</div>
+            <div class="sideHead" style="margin-top:0">
+              <div>
+                <div class="sideTitle">Float Pool</div>
+                <div class="muted small">Assign only after all providers covered</div>
+              </div>
+            </div>
+            <div class="floatBox" id="floatBox"></div>
+          </aside>
+
+          <!-- RIGHT: Provider editor -->
+          <section class="mainPane">
+            <div class="mainHead">
+              <div>
+                <div class="mainTitle" id="activeProviderTitle">Select a provider</div>
+                <div class="muted small" id="activeProviderSub">Then assign Mon–Fri</div>
+              </div>
+              <div class="mainActions">
+                <button class="btn btnGhost" id="btnProviderMarkDone">Mark Done</button>
+                <button class="btn btnGhost" id="btnProviderMarkNotDone">Mark Not Done</button>
+              </div>
             </div>
 
-            <div class="tableWrap tableWrapX">
-              <table class="grid" id="builderGrid">
-                <thead></thead>
-                <tbody></tbody>
-              </table>
+            <div class="grid2">
+              <div class="card soft">
+                <div class="cardTitleRow">
+                  <div class="cardTitle">Staff Roster</div>
+                  <button class="btn btnSmall btnGhost" id="btnAddStaff">Add</button>
+                </div>
+                <div class="muted small" style="margin-top:6px">
+                  MA and XR are locked per-day across providers.
+                </div>
+                <div class="rosterList" id="rosterEmailList"></div>
+              </div>
+
+              <div class="card soft">
+                <div class="cardTitleRow">
+                  <div class="cardTitle">Time Presets</div>
+                  <button class="btn btnSmall btnGhost" id="btnAddTimePreset">Add</button>
+                </div>
+                <div class="muted small" style="margin-top:6px">
+                  Times are presets only (no free text).
+                </div>
+                <div class="presetList" id="presetList"></div>
+              </div>
             </div>
-          </div>
+
+            <div class="card soft" style="margin-top:14px">
+              <div class="cardTitleRow">
+                <div class="cardTitle">Provider Schedule (Mon–Fri)</div>
+                <div class="muted small">Assign MA + Location(s) + Time(s), and XR room if needed.</div>
+              </div>
+
+              <div class="tableWrap">
+                <table class="grid" id="providerWeekGrid">
+                  <thead></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card soft" style="margin-top:14px">
+              <div class="cardTitleRow">
+                <div class="cardTitle">Locations</div>
+                <div class="muted small">Codes used in output</div>
+              </div>
+              <div class="locationList" id="locationList"></div>
+            </div>
+
+          </section>
         </div>
-
       </div>
     </section>
   </main>
@@ -224,7 +248,7 @@
     </div>
   </div>
 
-  <input id="scheduleFile" type="file" accept=".csv,text/csv" hidden />
+  <!-- Hidden file inputs -->
   <input id="staffFile" type="file" accept=".csv,text/csv" hidden />
   <input id="providersFile" type="file" accept=".csv,text/csv" hidden />
 
