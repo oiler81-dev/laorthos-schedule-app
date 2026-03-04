@@ -1,609 +1,282 @@
-:root{
-  --navy:#0b1f3a;
-  --blue2:#2b6fd6;
-
-  --bg:#f6f8fc;
-  --panel:#ffffff;
-  --text:#0f172a;
-  --muted:#5b677a;
-
-  --line: rgba(15, 23, 42, .12);
-  --line2: rgba(15, 23, 42, .18);
-  --shadow: 0 10px 28px rgba(2,6,23,.08);
-
-  --r-lg:18px;
-  --r-md:14px;
-
-  --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
-}
-
-*{ box-sizing:border-box; }
-html,body{ height:100%; }
-body{
-  margin:0;
-  font-family: var(--font);
-  color: var(--text);
-  background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(43,111,214,.14), transparent 55%),
-    radial-gradient(900px 500px at 90% 0%, rgba(43,111,214,.10), transparent 50%),
-    var(--bg);
-}
-
-[hidden]{ display:none !important; }
-
-.wrap{
-  max-width: 1320px;
-  margin: 18px auto 60px;
-  padding: 0 14px;
-}
-
-.panel{
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow);
-  overflow:hidden;
-}
-
-.panelHead{
-  padding: 16px 16px 10px;
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:12px;
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(11,31,58,.04), transparent);
-}
-
-.panelHead h1{
-  margin:0;
-  font-size: 18px;
-  letter-spacing: .2px;
-}
-
-.panelActions{
-  display:flex;
-  gap:8px;
-  align-items:center;
-  flex-wrap:wrap;
-}
-
-.view{ margin-top: 14px; }
-
-.topbar{
-  position: sticky;
-  top:0;
-  z-index: 30;
-  background: rgba(246,248,252,.88);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--line);
-}
-
-.brand{
-  display:flex;
-  align-items:center;
-  gap: 10px;
-  padding: 12px 14px 8px;
-}
-
-.logoMark{
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--navy), var(--blue2));
-  box-shadow: 0 10px 22px rgba(11,31,58,.18);
-}
-
-.brandTitle{
-  font-weight: 900;
-  color: var(--navy);
-  letter-spacing:.2px;
-}
-.brandSub{
-  font-size: 12px;
-  color: var(--muted);
-  margin-top:2px;
-}
-
-.tabs{
-  display:flex;
-  gap:8px;
-  padding: 0 14px 12px;
-  overflow:auto;
-}
-
-.tab{
-  border: 1px solid var(--line);
-  background: rgba(255,255,255,.72);
-  color: var(--navy);
-  padding: 10px 12px;
-  border-radius: 999px;
-  font-weight: 800;
-  cursor:pointer;
-  white-space:nowrap;
-}
-
-.tab.is-active{
-  background: linear-gradient(135deg, rgba(11,31,58,.12), rgba(43,111,214,.12));
-  border-color: rgba(43,111,214,.45);
-  box-shadow: 0 10px 22px rgba(2,6,23,.06);
-}
-
-.row, .filters{
-  display:flex;
-  gap: 12px;
-  align-items:flex-end;
-  padding: 12px 16px 14px;
-  flex-wrap:wrap;
-}
-
-.field{
-  display:flex;
-  flex-direction:column;
-  gap:6px;
-  min-width: 180px;
-}
-
-.field.grow{ flex: 1; min-width: 220px; }
-
-label{
-  font-size: 12px;
-  font-weight: 900;
-  color: rgba(11,31,58,.78);
-  letter-spacing: .2px;
-}
-
-input[type="text"], input[type="email"], select{
-  height: 44px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: #fff;
-  padding: 0 12px;
-  outline:none;
-  color: var(--text);
-  font-weight: 700;
-}
-
-textarea.ta{
-  min-height: 86px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: #fff;
-  padding: 10px 12px;
-  outline:none;
-  color: var(--text);
-  font-weight: 700;
-  resize: vertical;
-}
-
-input:focus, select:focus, textarea:focus{
-  border-color: rgba(43,111,214,.55);
-  box-shadow: 0 0 0 4px rgba(43,111,214,.12);
-}
-
-.pill{
-  height: 44px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: rgba(11,31,58,.04);
-  display:flex;
-  align-items:center;
-  padding: 0 12px;
-  color: var(--navy);
-  font-weight: 800;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-
-.btn{
-  height: 44px;
-  padding: 0 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(43,111,214,.45);
-  background: linear-gradient(135deg, var(--navy), var(--blue2));
-  color: #fff;
-  font-weight: 900;
-  cursor:pointer;
-  box-shadow: 0 12px 24px rgba(11,31,58,.16);
-}
-
-.btnGhost{
-  background: #fff;
-  color: var(--navy);
-  border: 1px solid var(--line2);
-  box-shadow: none;
-}
-
-.btnSmall{
-  height: 34px;
-  padding: 0 10px;
-  border-radius: 10px;
-  font-weight: 900;
-  font-size: 12px;
-}
-
-.iconBtn{
-  height: 36px;
-  min-width: 36px;
-  padding: 0 10px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: #fff;
-  color: var(--navy);
-  cursor:pointer;
-  font-weight: 900;
-}
-
-.divider{
-  width: 1px;
-  height: 28px;
-  background: rgba(15, 23, 42, .15);
-  margin: 0 8px;
-  align-self:center;
-}
-
-.muted{ color: var(--muted); }
-.small{ font-size: 12px; }
-
-.hint{
-  font-size: 12px;
-  color: rgba(91,103,122,.88);
-  padding: 10px 0 0;
-  line-height: 1.35;
-}
-
-.toast{
-  position: sticky;
-  top: 72px;
-  z-index: 20;
-  margin: 12px 0;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(43,111,214,.25);
-  background: rgba(255,255,255,.92);
-  backdrop-filter: blur(10px);
-  color: var(--navy);
-  font-weight: 900;
-  box-shadow: 0 12px 24px rgba(2,6,23,.06);
-}
-
-.cards{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-  padding: 12px 16px 16px;
-}
-
-.card{
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: #fff;
-  box-shadow: 0 10px 22px rgba(2,6,23,.04);
-}
-
-.cardTitle{
-  padding: 12px 14px 8px;
-  font-weight: 900;
-  color: var(--navy);
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(11,31,58,.04), transparent);
-}
-
-.cardBody{ padding: 12px 14px 14px; }
-
-.weekCards{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-  padding: 12px 14px 14px;
-}
-
-.dayCard{
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 12px;
-  background: rgba(246,248,252,.7);
-  display:flex;
-  justify-content:space-between;
-  gap:12px;
-}
-
-.dayName{
-  font-weight: 900;
-  color: var(--navy);
-}
-
-.dayValue{
-  font-weight: 900;
-  color: rgba(11,31,58,.92);
-  text-align:right;
-}
-
-.builderTop{
-  display:flex;
-  gap: 12px;
-  align-items:flex-end;
-  padding: 12px 16px 14px;
-  flex-wrap:wrap;
-  border-bottom: 1px solid var(--line);
-}
-
-.subPanels{
-  display:flex;
-  gap: 12px;
-  padding: 14px 16px 16px;
-  flex-wrap:wrap;
-}
-
-.subPanel{
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: #fff;
-  padding: 12px;
-  min-width: 280px;
-  flex: 0 0 320px;
-  box-shadow: 0 10px 22px rgba(2,6,23,.04);
-}
-
-.subPanel.grow{
-  flex: 1;
-  min-width: 320px;
-}
-
-.subPanel.wide{
-  flex: 1 1 100%;
-  min-width: 320px;
-}
-
-.subHead{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-  margin-bottom: 10px;
-}
-
-.subTitle{
-  font-weight: 1000;
-  color: var(--navy);
-}
-
-.templateList{
-  display:flex;
-  flex-direction:column;
-  gap: 10px;
-  max-height: 52vh;
-  overflow:auto;
-  padding-right: 4px;
-}
-
-.templateItem{
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgba(246,248,252,.65);
-  padding: 10px;
-}
-
-.templateTop{
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:10px;
-}
-
-.templateName{
-  font-weight: 900;
-  color: rgba(11,31,58,.95);
-}
-
-.templateMeta{
-  font-size: 12px;
-  color: rgba(91,103,122,.95);
-  margin-top: 4px;
-}
-
-.roleTag{
-  display:inline-flex;
-  align-items:center;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(43,111,214,.10);
-  border: 1px solid rgba(43,111,214,.22);
-  color: var(--navy);
-  font-weight: 900;
-  font-size: 12px;
-  margin-left: 8px;
-}
-
-.tableWrap{
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  overflow:auto;
-  background: #fff;
-}
-
-table{ width: 100%; border-collapse: separate; border-spacing: 0; }
-
-.grid th, .grid td{
-  border-bottom: 1px solid var(--line);
-  padding: 10px 12px;
-  vertical-align: top;
-  background: #fff;
-}
-
-.grid th{
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: linear-gradient(180deg, rgba(11,31,58,.06), rgba(255,255,255,1));
-  font-size: 12px;
-  font-weight: 1000;
-  color: rgba(11,31,58,.9);
-}
-
-.nameCell{
-  font-weight: 900;
-  color: rgba(11,31,58,.95);
-}
-
-.cellBtn{
-  width: 100%;
-  min-height: 44px;
-  border-radius: 12px;
-  border: 1px solid rgba(15,23,42,.10);
-  background: rgba(246,248,252,.85);
-  cursor:pointer;
-  text-align:left;
-  padding: 10px 10px;
-  font-weight: 900;
-  color: rgba(11,31,58,.95);
-}
-
-.providerLayout{
-  display:flex;
-  gap: 12px;
-  flex-wrap:wrap;
-}
-
-.providerBox{
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: rgba(246,248,252,.55);
-  padding: 12px;
-  flex: 0 0 360px;
-  min-width: 320px;
-}
-
-.providerBox.grow{
-  flex: 1 1 520px;
-  min-width: 320px;
-}
-
-.providerBoxHead{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-  margin-bottom:10px;
-}
-
-.providerBoxTitle{
-  font-weight: 1000;
-  color: var(--navy);
-}
-
-.providerList{
-  margin-top: 10px;
-  display:flex;
-  flex-direction:column;
-  gap: 10px;
-  max-height: 46vh;
-  overflow:auto;
-  padding-right: 4px;
-}
-
-.providerRow{
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: #fff;
-  padding: 10px;
-  display:flex;
-  align-items:center;
-  gap:10px;
-}
-
-.providerRow input{ flex: 1; }
-
-.xrByLocation{
-  display:grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-}
-
-.locCard{
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: #fff;
-  padding: 10px;
-}
-
-.locTitle{
-  font-weight: 1000;
-  color: var(--navy);
-  margin-bottom: 8px;
-}
-
-.bulkBar{
-  display:flex;
-  gap:12px;
-  align-items:flex-end;
-  flex-wrap:wrap;
-  border: 1px solid var(--line);
-  background: rgba(255,255,255,.75);
-  border-radius: var(--r-md);
-  padding: 10px;
-}
-
-.bulkBar .field{ min-width: 190px; }
-
-.modal{
-  position: fixed;
-  inset: 0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  z-index: 100;
-}
-
-.modalBackdrop{
-  position:absolute;
-  inset:0;
-  background: rgba(2,6,23,.55);
-}
-
-.modalCard{
-  position: relative;
-  width: min(760px, calc(100% - 22px));
-  max-height: calc(100% - 22px);
-  overflow:auto;
-  border-radius: 18px;
-  background: #fff;
-  border: 1px solid rgba(255,255,255,.15);
-  box-shadow: 0 28px 70px rgba(2,6,23,.35);
-}
-
-.modalHead{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding: 14px 14px 10px;
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(11,31,58,.08), transparent);
-}
-
-.modalTitle{
-  font-weight: 1000;
-  color: var(--navy);
-}
-
-.modalBody{ padding: 14px; }
-.modalFoot{
-  padding: 12px 14px 14px;
-  display:flex;
-  justify-content:flex-end;
-  gap: 8px;
-  border-top: 1px solid var(--line);
-}
-
-@media (min-width: 860px){
-  .cards{ grid-template-columns: 1fr 1fr; }
-  .weekCards{ grid-template-columns: 1fr 1fr; }
-}
-
-@media (max-width: 520px){
-  .panelActions{ width:100%; justify-content:flex-start; }
-  .field{ min-width: 100%; }
-  .subPanel{ min-width: 100%; flex: 1 1 100%; }
-  .providerBox{ min-width: 100%; flex: 1 1 100%; }
-}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LA Orthos | MA/XR Schedule</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logoMark" aria-hidden="true"></div>
+      <div class="brandText">
+        <div class="brandTitle">LA Orthos Schedule</div>
+        <div class="brandSub" id="authLine">Loading…</div>
+      </div>
+    </div>
+
+    <nav class="tabs" role="tablist" aria-label="Schedule views">
+      <button class="tab is-active" data-view="my" role="tab" aria-selected="true">My Schedule</button>
+      <button class="tab" data-view="everyone" role="tab" aria-selected="false">Everyone</button>
+      <button class="tab" data-view="builder" role="tab" aria-selected="false" id="builderTab" style="display:none;">Builder</button>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section id="toast" class="toast" hidden></section>
+
+    <!-- MY (mobile-first) -->
+    <section id="view-my" class="view">
+      <div class="panel">
+        <div class="panelHead">
+          <h1>My Schedule</h1>
+          <div class="panelActions">
+            <button class="btn btnGhost" id="btnLogin">Login</button>
+            <button class="btn btnGhost" id="btnLogout">Logout</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label>Week of (Mon)</label>
+            <select id="weekPickMy"></select>
+          </div>
+          <div class="field grow">
+            <label>Matched staff</label>
+            <div class="pill" id="myMatchPill">—</div>
+          </div>
+        </div>
+
+        <div class="cards">
+          <div class="card">
+            <div class="cardTitle">Today</div>
+            <div id="todayCard" class="cardBody muted">Loading…</div>
+          </div>
+
+          <div class="card">
+            <div class="cardTitle">This Week</div>
+            <div id="weekCards" class="weekCards"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EVERYONE -->
+    <section id="view-everyone" class="view" hidden>
+      <div class="panel">
+        <div class="panelHead">
+          <h1>Everyone</h1>
+          <div class="panelActions">
+            <button class="btn btnGhost" id="btnPrint">Print</button>
+            <button class="btn btnGhost" id="btnExportCSV">Export CSV</button>
+          </div>
+        </div>
+
+        <div class="filters">
+          <div class="field">
+            <label>Week of (Mon)</label>
+            <select id="weekPickEveryone"></select>
+          </div>
+          <div class="field">
+            <label>Role</label>
+            <select id="roleFilter">
+              <option value="ALL">All</option>
+              <option value="MA">MA</option>
+              <option value="XR">XR</option>
+            </select>
+          </div>
+          <div class="field grow">
+            <label>Search</label>
+            <input id="searchFilter" type="text" placeholder="Type a name…" />
+          </div>
+        </div>
+
+        <div class="tableWrap">
+          <table class="grid" id="everyoneGrid">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- BUILDER (editors only) -->
+    <section id="view-builder" class="view" hidden>
+      <div class="panel">
+        <div class="panelHead">
+          <h1>Builder</h1>
+          <div class="panelActions">
+            <button class="btn btnGhost" id="btnNewBlankWeek">New Blank Week</button>
+            <button class="btn btnGhost" id="btnClonePrevPublished">Clone Prev Published → Draft</button>
+            <button class="btn btnGhost" id="btnClonePrevAssignments">Clone Prev Provider Assignments</button>
+
+            <span class="divider" aria-hidden="true"></span>
+
+            <button class="btn btnGhost" id="btnImportScheduleCSV">Import Schedule CSV</button>
+            <button class="btn btnGhost" id="btnLoadDraft">Load Draft</button>
+            <button class="btn btnGhost" id="btnLoadPublished">Load Published</button>
+
+            <span class="divider" aria-hidden="true"></span>
+
+            <button class="btn btnGhost" id="btnImportStaffCSV">Import Staff CSV</button>
+            <button class="btn btnGhost" id="btnAddStaff">Add Staff</button>
+
+            <span class="divider" aria-hidden="true"></span>
+
+            <button class="btn btnGhost" id="btnLoadDefaultRoster">Load Default Roster</button>
+            <button class="btn btnGhost" id="btnSaveDefaultRoster">Save Default Roster</button>
+
+            <button class="btn btnGhost" id="btnLoadDefaultProviders">Load Default Providers</button>
+            <button class="btn btnGhost" id="btnSaveDefaultProviders">Save Default Providers</button>
+
+            <span class="divider" aria-hidden="true"></span>
+
+            <button class="btn" id="btnSaveDraft">Save Draft</button>
+            <button class="btn" id="btnPublish">Publish</button>
+          </div>
+        </div>
+
+        <div class="builderTop">
+          <div class="field">
+            <label>Week of (Mon)</label>
+            <select id="weekPickBuilder"></select>
+          </div>
+          <div class="field grow">
+            <label>Status</label>
+            <div class="pill" id="builderStatus">—</div>
+          </div>
+          <div class="field">
+            <label>Validate</label>
+            <button class="btn btnGhost" id="btnValidate">Run</button>
+          </div>
+        </div>
+
+        <div class="subPanels">
+          <!-- Roster -->
+          <div class="subPanel">
+            <div class="subHead">
+              <div class="subTitle">Roster</div>
+              <div class="muted small">Import defaults to MA; edit XR manually</div>
+            </div>
+            <div id="rosterEmailList" class="templateList"></div>
+            <div class="hint">
+              “My Schedule” matches: login email → roster email.
+            </div>
+          </div>
+
+          <!-- Templates -->
+          <div class="subPanel">
+            <div class="subHead">
+              <div class="subTitle">Templates</div>
+              <button class="btn btnSmall btnGhost" id="btnAddTemplate">Add</button>
+            </div>
+            <div id="templateList" class="templateList"></div>
+            <div class="hint">
+              Templates come from Schedule CSV + anything you add.
+              Click a cell in Weekly Grid to apply a template.
+            </div>
+          </div>
+
+          <!-- Weekly grid -->
+          <div class="subPanel grow">
+            <div class="subHead">
+              <div class="subTitle">Weekly Grid</div>
+              <div class="muted small" id="editHint">Click any cell to assign</div>
+            </div>
+            <div class="tableWrap">
+              <table class="grid" id="builderGrid">
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Provider Builder -->
+          <div class="subPanel wide">
+            <div class="subHead">
+              <div class="subTitle">Provider Builder</div>
+              <div class="muted small">MA = Provider+Location • XR = Provider+Location or Location-only</div>
+            </div>
+
+            <div class="providerLayout">
+              <div class="providerBox">
+                <div class="providerBoxHead">
+                  <div class="providerBoxTitle">Providers</div>
+                  <button class="btn btnSmall btnGhost" id="btnAddProvider">Add</button>
+                </div>
+                <div class="field" style="min-width:100%">
+                  <label>Quick add (one per line)</label>
+                  <textarea id="providerBulk" class="ta" placeholder="Dr. Lastname&#10;Dr. Another"></textarea>
+                  <button class="btn btnGhost" id="btnAddProviderBulk" style="margin-top:8px">Add Lines</button>
+                </div>
+                <div id="providerList" class="providerList"></div>
+              </div>
+
+              <div class="providerBox grow">
+                <div class="providerBoxHead">
+                  <div class="providerBoxTitle">Assignments</div>
+                  <div class="muted small">If XR per-provider is blank, Location XR applies.</div>
+                </div>
+
+                <div class="field" style="min-width:100%">
+                  <label>Location XR Coverage (location-only)</label>
+                  <div id="xrByLocation" class="xrByLocation"></div>
+                </div>
+
+                <div class="bulkBar">
+                  <div class="field">
+                    <label>Bulk Location</label>
+                    <select id="bulkLoc"></select>
+                  </div>
+                  <div class="field">
+                    <label>Bulk MA</label>
+                    <select id="bulkMA"></select>
+                  </div>
+                  <div class="field">
+                    <label>Bulk XR (optional)</label>
+                    <select id="bulkXR"></select>
+                  </div>
+                  <div class="field">
+                    <label>&nbsp;</label>
+                    <button class="btn btnGhost" id="btnApplyBulk">Apply to checked</button>
+                  </div>
+                </div>
+
+                <div class="tableWrap" style="margin-top:12px">
+                  <table class="grid" id="providerAssignGrid">
+                    <thead></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+
+                <div class="hint">
+                  Locations: Wilshire (WIL), Santa Fe Springs (SFS), East LA (ELA), Glendale (GLE), Tarzana (TZ), Encino (ENC), Valencia (VAL), Thousand Oaks (TO).
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal -->
+  <div class="modal" id="modal" hidden>
+    <div class="modalBackdrop" data-close="1"></div>
+    <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modalHead">
+        <div id="modalTitle" class="modalTitle">Modal</div>
+        <button class="iconBtn" data-close="1" aria-label="Close">✕</button>
+      </div>
+      <div class="modalBody" id="modalBody"></div>
+      <div class="modalFoot" id="modalFoot"></div>
+    </div>
+  </div>
+
+  <input id="scheduleFile" type="file" accept=".csv,text/csv" hidden />
+  <input id="staffFile" type="file" accept=".csv,text/csv" hidden />
+  <script src="./app.js"></script>
+</body>
+</html>
