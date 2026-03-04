@@ -9,9 +9,11 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <div class="logoMark" aria-hidden="true"></div>
+      <!-- Put your logo file here: /assets/laorthos-logo.png -->
+      <img class="brandLogo" src="./assets/laorthos-logo.png" alt="Los Angeles Orthopedic Surgery Specialists" />
+
       <div class="brandText">
-        <div class="brandTitle">LA Orthos Schedule</div>
+        <div class="brandTitle">MA/XR Schedule</div>
         <div class="brandSub" id="authLine">Loading…</div>
       </div>
     </div>
@@ -107,31 +109,9 @@
         <div class="panelHead">
           <h1>Builder</h1>
           <div class="panelActions">
-            <button class="btn btnGhost" id="btnNewBlankWeek">New Blank Week</button>
-            <button class="btn btnGhost" id="btnClonePrevPublished">Clone Prev Published → Draft</button>
-            <button class="btn btnGhost" id="btnClonePrevAssignments">Clone Prev Provider Assignments</button>
-
-            <span class="divider" aria-hidden="true"></span>
-
-            <button class="btn btnGhost" id="btnImportScheduleCSV">Import Schedule CSV</button>
+            <button class="btn btnGhost" id="btnImportCSV">Import CSV</button>
             <button class="btn btnGhost" id="btnLoadDraft">Load Draft</button>
             <button class="btn btnGhost" id="btnLoadPublished">Load Published</button>
-
-            <span class="divider" aria-hidden="true"></span>
-
-            <button class="btn btnGhost" id="btnImportStaffCSV">Import Staff CSV</button>
-            <button class="btn btnGhost" id="btnAddStaff">Add Staff</button>
-
-            <span class="divider" aria-hidden="true"></span>
-
-            <button class="btn btnGhost" id="btnLoadDefaultRoster">Load Default Roster</button>
-            <button class="btn btnGhost" id="btnSaveDefaultRoster">Save Default Roster</button>
-
-            <button class="btn btnGhost" id="btnLoadDefaultProviders">Load Default Providers</button>
-            <button class="btn btnGhost" id="btnSaveDefaultProviders">Save Default Providers</button>
-
-            <span class="divider" aria-hidden="true"></span>
-
             <button class="btn" id="btnSaveDraft">Save Draft</button>
             <button class="btn" id="btnPublish">Publish</button>
           </div>
@@ -153,19 +133,17 @@
         </div>
 
         <div class="subPanels">
-          <!-- Roster -->
           <div class="subPanel">
             <div class="subHead">
-              <div class="subTitle">Roster</div>
-              <div class="muted small">Import defaults to MA; edit XR manually</div>
+              <div class="subTitle">Roster Emails</div>
+              <button class="btn btnSmall btnGhost" id="btnAutoGuessEmails">Auto-guess</button>
             </div>
             <div id="rosterEmailList" class="templateList"></div>
             <div class="hint">
-              “My Schedule” matches: login email → roster email.
+              Required for “My Schedule”. Match is: login email → roster email.
             </div>
           </div>
 
-          <!-- Templates -->
           <div class="subPanel">
             <div class="subHead">
               <div class="subTitle">Templates</div>
@@ -173,17 +151,17 @@
             </div>
             <div id="templateList" class="templateList"></div>
             <div class="hint">
-              Templates come from Schedule CSV + anything you add.
-              Click a cell in Weekly Grid to apply a template.
+              Templates are learned from CSV + whatever you add.
+              Click a cell in the grid to apply a template.
             </div>
           </div>
 
-          <!-- Weekly grid -->
           <div class="subPanel grow">
             <div class="subHead">
               <div class="subTitle">Weekly Grid</div>
               <div class="muted small" id="editHint">Click any cell to assign</div>
             </div>
+
             <div class="tableWrap">
               <table class="grid" id="builderGrid">
                 <thead></thead>
@@ -191,72 +169,6 @@
               </table>
             </div>
           </div>
-
-          <!-- Provider Builder -->
-          <div class="subPanel wide">
-            <div class="subHead">
-              <div class="subTitle">Provider Builder</div>
-              <div class="muted small">MA = Provider+Location • XR = Provider+Location or Location-only</div>
-            </div>
-
-            <div class="providerLayout">
-              <div class="providerBox">
-                <div class="providerBoxHead">
-                  <div class="providerBoxTitle">Providers</div>
-                  <button class="btn btnSmall btnGhost" id="btnAddProvider">Add</button>
-                </div>
-                <div class="field" style="min-width:100%">
-                  <label>Quick add (one per line)</label>
-                  <textarea id="providerBulk" class="ta" placeholder="Dr. Lastname&#10;Dr. Another"></textarea>
-                  <button class="btn btnGhost" id="btnAddProviderBulk" style="margin-top:8px">Add Lines</button>
-                </div>
-                <div id="providerList" class="providerList"></div>
-              </div>
-
-              <div class="providerBox grow">
-                <div class="providerBoxHead">
-                  <div class="providerBoxTitle">Assignments</div>
-                  <div class="muted small">If XR per-provider is blank, Location XR applies.</div>
-                </div>
-
-                <div class="field" style="min-width:100%">
-                  <label>Location XR Coverage (location-only)</label>
-                  <div id="xrByLocation" class="xrByLocation"></div>
-                </div>
-
-                <div class="bulkBar">
-                  <div class="field">
-                    <label>Bulk Location</label>
-                    <select id="bulkLoc"></select>
-                  </div>
-                  <div class="field">
-                    <label>Bulk MA</label>
-                    <select id="bulkMA"></select>
-                  </div>
-                  <div class="field">
-                    <label>Bulk XR (optional)</label>
-                    <select id="bulkXR"></select>
-                  </div>
-                  <div class="field">
-                    <label>&nbsp;</label>
-                    <button class="btn btnGhost" id="btnApplyBulk">Apply to checked</button>
-                  </div>
-                </div>
-
-                <div class="tableWrap" style="margin-top:12px">
-                  <table class="grid" id="providerAssignGrid">
-                    <thead></thead>
-                    <tbody></tbody>
-                  </table>
-                </div>
-
-                <div class="hint">
-                  Locations: Wilshire (WIL), Santa Fe Springs (SFS), East LA (ELA), Glendale (GLE), Tarzana (TZ), Encino (ENC), Valencia (VAL), Thousand Oaks (TO).
-                </div>
-              </div>
-            </div>
-          </div>
-
         </div>
       </div>
     </section>
@@ -275,8 +187,7 @@
     </div>
   </div>
 
-  <input id="scheduleFile" type="file" accept=".csv,text/csv" hidden />
-  <input id="staffFile" type="file" accept=".csv,text/csv" hidden />
+  <input id="csvFile" type="file" accept=".csv,text/csv" hidden />
   <script src="./app.js"></script>
 </body>
 </html>
