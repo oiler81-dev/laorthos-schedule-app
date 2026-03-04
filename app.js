@@ -1,24 +1,21 @@
 const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
-const $ = (sel) => document.querySelector(sel);
+const DEFAULTS_PK = "__defaults__";
+const DEFAULT_ROSTER_RK = "roster";
+const DEFAULT_PROVIDERS_RK = "providers";
 
-const LOCATIONS = [
-  { name: "Wilshire", code: "WIL" },
-  { name: "Santa Fe Springs", code: "SFS" },
-  { name: "East LA", code: "ELA" },
-  { name: "Glendale", code: "GLE" },
-  { name: "Tarzana", code: "TZ" },
-  { name: "Encino", code: "ENC" },
-  { name: "Valencia", code: "VAL" },
-  { name: "Thousand Oaks", code: "TO" },
-];
+const $ = (sel) => document.querySelector(sel);
 
 const state = {
   auth: { email: null, editor: false },
   view: "my",
+
   weeks: [],
   currentWeekOf: null,
+
   published: null,
   draft: null,
+
+  providers: [], // current working provider list (draft-level)
 };
 
 init().catch(err => {
@@ -34,8 +31,8 @@ async function init(){
   await loadWeeks();
 
   state.currentWeekOf = state.weeks[0] || mondayOf(new Date());
-
   await loadPublished(state.currentWeekOf);
+
   renderWeekPickers();
   renderAll();
 }
@@ -45,6 +42,7 @@ async function init(){
 async function loadAuth(){
   const res = await fetch("./api/me", { cache: "no-store" });
   const data = await res.json();
+
   state.auth.email = data.email;
   state.auth.editor = !!data.editor;
 
@@ -80,7 +78,7 @@ async function loadPublished(weekOf){
     const res = await fetch(`./api/schedule?weekOf=${encodeURIComponent(weekOf)}&mode=published`, { cache: "no-store" });
     if(!res.ok){ state.published = null; return; }
     const data = await res.json();
-    state.published = data.data;
+    state.published = data.data || null;
   }catch{
     state.published = null;
   }
@@ -91,17 +89,22 @@ async function loadDraft(weekOf){
     const res = await fetch(`./api/schedule?weekOf=${encodeURIComponent(weekOf)}&mode=draft`, { cache: "no-store" });
     if(!res.ok){ state.draft = null; return; }
     const data = await res.json();
-    state.draft = data.data;
+    state.draft = data.data || null;
   }catch{
     state.draft = null;
   }
 }
 
-async function getSchedule(weekOf, mode){
-  const res = await fetch(`./api/schedule?weekOf=${encodeURIComponent(weekOf)}&mode=${encodeURIComponent(mode)}`, { cache: "no-store" });
-  if(!res.ok) return null;
-  const data = await res.json();
-  return data.data || null;
+async function loadDefaults(kind){
+  const rk = kind === "roster" ? DEFAULT_ROSTER_RK : DEFAULT_PROVIDERS_RK;
+  try{
+    const res = await fetch(`./api/schedule?weekOf=${encodeURIComponent(DEFAULTS_PK)}&mode=${encodeURIComponent(rk)}`, { cache: "no-store" });
+    if(!res.ok) return null;
+    const data = await res.json();
+    return data.data || null;
+  }catch{
+    return null;
+  }
 }
 
 async function saveSchedule(mode, payload){
@@ -109,40 +112,6 @@ async function saveSchedule(mode, payload){
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ weekOf: payload.weekOf, mode, data: payload })
-  });
-  if(!res.ok) throw new Error(await res.text());
-}
-
-/* ---- Default roster/providers (Option C) ---- */
-
-async function getDefaultRoster(){
-  const res = await fetch("./api/roster", { cache: "no-store" });
-  if(!res.ok) throw new Error(await res.text());
-  const data = await res.json();
-  return data.roster || null;
-}
-
-async function saveDefaultRoster(roster){
-  const res = await fetch("./api/roster", {
-    method: "POST",
-    headers: { "Content-Type":"application/json" },
-    body: JSON.stringify({ roster })
-  });
-  if(!res.ok) throw new Error(await res.text());
-}
-
-async function getDefaultProviders(){
-  const res = await fetch("./api/providers", { cache: "no-store" });
-  if(!res.ok) throw new Error(await res.text());
-  const data = await res.json();
-  return data.providers || null;
-}
-
-async function saveDefaultProviders(providers){
-  const res = await fetch("./api/providers", {
-    method: "POST",
-    headers: { "Content-Type":"application/json" },
-    body: JSON.stringify({ providers })
   });
   if(!res.ok) throw new Error(await res.text());
 }
@@ -162,7 +131,9 @@ function setView(view){
     t.classList.toggle("is-active", is);
     t.setAttribute("aria-selected", is ? "true" : "false");
   });
-  ["my","everyone","builder"].forEach(v=> $(`#view-${v}`).hidden = (v !== view));
+  ["my","everyone","builder"].forEach(v=>{
+    $(`#view-${v}`).hidden = (v !== view);
+  });
 }
 
 /* ---------------- Buttons ---------------- */
@@ -174,7 +145,7 @@ function wireButtons(){
   $("#btnLogin").addEventListener("click", login);
   $("#btnLogout").addEventListener("click", logout);
 
-  // Import Schedule CSV
+  // Schedule CSV import
   $("#btnImportScheduleCSV").addEventListener("click", ()=> $("#scheduleFile").click());
   $("#scheduleFile").addEventListener("change", async (e)=>{
     const f = e.target.files?.[0];
@@ -187,7 +158,7 @@ function wireButtons(){
 
       if(!state.weeks.includes(parsed.weekOf)){
         state.weeks.unshift(parsed.weekOf);
-        state.weeks = sortWeeksDesc(Array.from(new Set(state.weeks)));
+        state.weeks = Array.from(new Set(state.weeks)).sort((a,b)=> a < b ? 1 : -1);
       }
 
       renderWeekPickers();
@@ -198,103 +169,8 @@ function wireButtons(){
       renderAll();
     }catch(err){
       console.error(err);
-      toast("Schedule import failed. Make sure it’s the schedule export.");
+      toast("Schedule CSV import failed.");
     }
-  });
-
-  // Import Staff CSV (defaults role to MA)
-  $("#btnImportStaffCSV").addEventListener("click", ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-    $("#staffFile").click();
-  });
-
-  $("#staffFile").addEventListener("change", async (e)=>{
-    const f = e.target.files?.[0];
-    if(!f) return;
-    const text = await f.text();
-    try{
-      const payload = ensureDraftWeek();
-      if(!payload) return;
-
-      const imported = parseStaffCSV(text); // defaults role=MA if missing
-      const result = mergeRosterByEmail(payload.roster, imported);
-
-      payload.roster = result.roster;
-      ensureEntriesForRoster(payload);
-
-      toast(`Staff imported: ${result.added} added, ${result.updated} updated.`);
-      $("#staffFile").value = "";
-      renderBuilder();
-    }catch(err){
-      console.error(err);
-      toast("Staff import failed. Check CSV columns (name + email).");
-    }
-  });
-
-  // Add staff manually
-  $("#btnAddStaff").addEventListener("click", ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-
-    openModal({
-      title: "Add Staff",
-      body: `
-        <div class="field" style="min-width:100%">
-          <label>Name</label>
-          <input id="addStaffName" type="text" placeholder="First Last" />
-        </div>
-        <div class="field" style="min-width:100%; margin-top:10px">
-          <label>Email</label>
-          <input id="addStaffEmail" type="email" placeholder="user@laorthos.com" />
-        </div>
-        <div class="field" style="min-width:100%; margin-top:10px">
-          <label>Role</label>
-          <select id="addStaffRole">
-            <option value="MA" selected>MA</option>
-            <option value="XR">XR</option>
-          </select>
-        </div>
-        <div class="hint" style="margin-top:10px">
-          Tip: Use Import Staff CSV for bulk. This is for one-offs.
-        </div>
-      `,
-      foot: `
-        <button class="btn btnGhost" data-close="1">Cancel</button>
-        <button class="btn" id="addStaffSave">Add</button>
-      `,
-      onAfter(){
-        $("#addStaffSave").addEventListener("click", ()=>{
-          const name = ($("#addStaffName").value || "").trim();
-          const email = ($("#addStaffEmail").value || "").trim().toLowerCase();
-          const role = ($("#addStaffRole").value || "MA").trim().toUpperCase();
-
-          if(!name) return toast("Name is required.");
-          if(!email || !email.includes("@")) return toast("Valid email required.");
-
-          const existing = payload.roster.find(r => (r.email || "").toLowerCase() === email);
-          if(existing){
-            existing.name = name;
-            existing.role = (role === "XR") ? "XR" : "MA";
-            toast("Staff updated (email matched).");
-          }else{
-            payload.roster.push({
-              id: staffIdFromEmail(email),
-              name,
-              role: (role === "XR") ? "XR" : "MA",
-              email
-            });
-            toast("Staff added.");
-          }
-
-          ensureEntriesForRoster(payload);
-          closeModal();
-          renderBuilder();
-        });
-      }
-    });
   });
 
   $("#btnLoadDraft").addEventListener("click", async ()=>{
@@ -320,7 +196,7 @@ function wireButtons(){
       toast("Draft saved.");
     }catch(e){
       console.error(e);
-      toast("Draft save failed. Check API + env vars.");
+      toast("Draft save failed.");
     }
   });
 
@@ -346,7 +222,7 @@ function wireButtons(){
       renderAll();
     }catch(e){
       console.error(e);
-      toast("Publish failed. Check API + permissions.");
+      toast("Publish failed.");
     }
   });
 
@@ -355,6 +231,7 @@ function wireButtons(){
     if(!payload) return;
     const issues = validate(payload);
     if(!issues.length) return toast("Validation passed.");
+
     openModal({
       title: `Validation issues (${issues.length})`,
       body: `<div class="muted" style="line-height:1.45">${issues.map(x=>`• ${escapeHtml(x)}`).join("<br>")}</div>`,
@@ -367,234 +244,259 @@ function wireButtons(){
     openAddTemplateModal();
   });
 
-  // Default roster load/save
-  $("#btnLoadDefaultRoster").addEventListener("click", async ()=>{
+  $("#btnAutoGuessEmails").addEventListener("click", ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftWeek();
     if(!payload) return;
 
+    payload.roster.forEach(r=>{
+      if(r.email) return;
+      const parts = r.name.toLowerCase().split(/\s+/).filter(Boolean);
+      if(parts.length < 2) return;
+      const first = parts[0];
+      const last = parts[parts.length-1];
+      r.email = `${first[0]}${last}@laorthos.com`;
+    });
+
+    toast("Auto-guess applied. Review.");
+    renderBuilder();
+  });
+
+  // Staff import (file picker)
+  $("#btnImportStaffCSV").addEventListener("click", ()=> $("#staffFile").click());
+  $("#staffFile").addEventListener("change", async (e)=>{
+    const f = e.target.files?.[0];
+    if(!f) return;
+    const text = await f.text();
     try{
-      const roster = await getDefaultRoster();
-      if(!roster?.length) return toast("No default roster saved yet.");
-      payload.roster = roster.map(r=>({
-        id: r.id || staffIdFromEmail(r.email || r.name || ""),
-        name: r.name,
-        role: (r.role === "XR") ? "XR" : "MA",
-        email: (r.email || "").toLowerCase()
-      }));
-      ensureEntriesForRoster(payload);
-      toast("Default roster loaded into draft.");
+      const staff = parseStaffCSV(text);
+      const payload = ensureDraftForWeek(state.currentWeekOf);
+      mergeStaffIntoRoster(payload, staff, { defaultRole:"MA" });
+      toast(`Staff imported (${staff.length}).`);
+      $("#staffFile").value = "";
       renderBuilder();
-    }catch(e){
-      console.error(e);
-      toast("Failed to load default roster.");
+      renderMy();
+      renderEveryone();
+    }catch(err){
+      console.error(err);
+      toast("Staff import failed.");
     }
   });
 
+  // Staff load from repo: /data/staff.csv
+  $("#btnLoadStaffFromRepo").addEventListener("click", async ()=>{
+    try{
+      const res = await fetch("./data/staff.csv", { cache:"no-store" });
+      if(!res.ok) throw new Error("Missing ./data/staff.csv");
+      const text = await res.text();
+      const staff = parseStaffCSV(text);
+      const payload = ensureDraftForWeek(state.currentWeekOf);
+      mergeStaffIntoRoster(payload, staff, { defaultRole:"MA" });
+      toast(`Staff loaded from repo (${staff.length}).`);
+      renderBuilder();
+      renderMy();
+      renderEveryone();
+    }catch(e){
+      console.error(e);
+      toast("Load staff from repo failed. Put file at /data/staff.csv");
+    }
+  });
+
+  // Add Staff manually
+  $("#btnAddStaff").addEventListener("click", ()=>{
+    if(!state.auth.editor) return toast("Not authorized.");
+    const payload = ensureDraftForWeek(state.currentWeekOf);
+
+    openModal({
+      title: "Add Staff",
+      body: `
+        <div class="field" style="min-width:100%">
+          <label>Full name</label>
+          <input id="addStaffName" type="text" placeholder="First Last" />
+        </div>
+        <div class="field" style="min-width:100%; margin-top:10px">
+          <label>Email</label>
+          <input id="addStaffEmail" type="email" placeholder="name@laorthos.com" />
+        </div>
+        <div class="field" style="min-width:100%; margin-top:10px">
+          <label>Role</label>
+          <select id="addStaffRole">
+            <option value="MA">MA</option>
+            <option value="XR">XR</option>
+          </select>
+        </div>
+      `,
+      foot: `
+        <button class="btn btnGhost" data-close="1">Cancel</button>
+        <button class="btn" id="addStaffSave">Add</button>
+      `,
+      onAfter(){
+        $("#addStaffSave").addEventListener("click", ()=>{
+          const name = ($("#addStaffName").value||"").trim();
+          const email = ($("#addStaffEmail").value||"").trim();
+          const role = $("#addStaffRole").value;
+
+          if(!name) return toast("Name required.");
+          const id = slug(name);
+
+          // avoid duplicates by email
+          const emailLower = (email||"").toLowerCase();
+          const existing = payload.roster.find(r => (r.email||"").toLowerCase() === emailLower && emailLower);
+          if(existing){
+            toast("That email already exists in roster.");
+            return;
+          }
+
+          if(!payload.roster.some(r=>r.id===id)){
+            payload.roster.push({ id, name, role, email });
+            payload.entries[id] = payload.entries[id] || blankWeekEntries();
+          }
+
+          closeModal();
+          toast("Staff added.");
+          renderBuilder();
+        });
+      }
+    });
+  });
+
+  // Providers import (file picker)
+  $("#btnImportProvidersCSV").addEventListener("click", ()=> $("#providersFile").click());
+  $("#providersFile").addEventListener("change", async (e)=>{
+    const f = e.target.files?.[0];
+    if(!f) return;
+    const text = await f.text();
+    try{
+      const providers = parseProvidersCSV(text);
+      const payload = ensureDraftForWeek(state.currentWeekOf);
+      payload.providers = mergeProviders(payload.providers || [], providers);
+      toast(`Providers imported (${providers.length}).`);
+      $("#providersFile").value = "";
+      renderProviders(payload);
+    }catch(err){
+      console.error(err);
+      toast("Providers import failed.");
+    }
+  });
+
+  // Providers load from repo: /data/providers.csv
+  $("#btnLoadProvidersFromRepo").addEventListener("click", async ()=>{
+    try{
+      const res = await fetch("./data/providers.csv", { cache:"no-store" });
+      if(!res.ok) throw new Error("Missing ./data/providers.csv");
+      const text = await res.text();
+      const providers = parseProvidersCSV(text);
+      const payload = ensureDraftForWeek(state.currentWeekOf);
+      payload.providers = mergeProviders(payload.providers || [], providers);
+      toast(`Providers loaded from repo (${providers.length}).`);
+      renderProviders(payload);
+    }catch(e){
+      console.error(e);
+      toast("Load providers from repo failed. Put file at /data/providers.csv");
+    }
+  });
+
+  // Add Provider (single)
+  $("#btnAddProvider").addEventListener("click", ()=>{
+    if(!state.auth.editor) return toast("Not authorized.");
+    const payload = ensureDraftForWeek(state.currentWeekOf);
+
+    openModal({
+      title: "Add Provider",
+      body: `
+        <div class="field" style="min-width:100%">
+          <label>Provider name</label>
+          <input id="addProvName" type="text" placeholder="Dr. Lastname" />
+        </div>
+      `,
+      foot: `
+        <button class="btn btnGhost" data-close="1">Cancel</button>
+        <button class="btn" id="addProvSave">Add</button>
+      `,
+      onAfter(){
+        $("#addProvSave").addEventListener("click", ()=>{
+          const name = ($("#addProvName").value||"").trim();
+          if(!name) return toast("Provider name required.");
+          payload.providers = payload.providers || [];
+          payload.providers = mergeProviders(payload.providers, [{ id: slug(name), name }]);
+          closeModal();
+          toast("Provider added.");
+          renderProviders(payload);
+        });
+      }
+    });
+  });
+
+  // Providers bulk add
+  $("#btnAddProviderBulk").addEventListener("click", ()=>{
+    if(!state.auth.editor) return toast("Not authorized.");
+    const payload = ensureDraftForWeek(state.currentWeekOf);
+    const raw = ($("#providerBulk").value||"").trim();
+    if(!raw) return toast("Paste provider names first.");
+    const lines = raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+    const providers = lines.map(name => ({ id: slug(name), name }));
+    payload.providers = mergeProviders(payload.providers || [], providers);
+    $("#providerBulk").value = "";
+    toast(`Added ${providers.length} provider(s).`);
+    renderProviders(payload);
+  });
+
+  // Defaults: roster
   $("#btnSaveDefaultRoster").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftWeek();
     if(!payload) return;
-    if(!payload.roster?.length) return toast("Draft roster is empty.");
 
+    const rosterOnly = { weekOf: DEFAULTS_PK, roster: payload.roster };
     try{
-      await saveDefaultRoster(payload.roster);
+      await saveSchedule(DEFAULT_ROSTER_RK, rosterOnly);
       toast("Default roster saved.");
     }catch(e){
       console.error(e);
-      toast("Failed to save default roster.");
+      toast("Default roster save failed.");
     }
   });
 
-  // Default providers load/save
-  $("#btnLoadDefaultProviders").addEventListener("click", async ()=>{
+  $("#btnLoadDefaultRoster").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-
-    try{
-      const providers = await getDefaultProviders();
-      if(!providers?.length) return toast("No default providers saved yet.");
-      payload.providers = normalizeProviders(providers);
-      payload.providerAssignments ||= {};
-      payload.xrLocationAssignments ||= {};
-      toast("Default providers loaded into draft.");
-      renderBuilder();
-    }catch(e){
-      console.error(e);
-      toast("Failed to load default providers.");
-    }
-  });
-
-  $("#btnSaveDefaultProviders").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-
-    const list = (payload.providers || [])
-      .map(p => (typeof p === "string" ? p : p?.name))
-      .map(s=> (s||"").trim())
-      .filter(Boolean);
-
-    if(!list.length) return toast("No providers to save.");
-
-    try{
-      await saveDefaultProviders(list);
-      toast("Default providers saved.");
-    }catch(e){
-      console.error(e);
-      toast("Failed to save default providers.");
-    }
-  });
-
-  // New blank week
-  $("#btnNewBlankWeek").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-
-    const week = state.currentWeekOf;
-    const base = (state.published && state.published.weekOf === week) ? state.published : null;
-    state.draft = await createBlankDraftFromDefaults(week, base);
-
-    if(!state.weeks.includes(week)){
-      state.weeks = sortWeeksDesc(Array.from(new Set([week, ...state.weeks])));
-      renderWeekPickers();
-      setAllWeekPickers(week);
-    }
-
-    toast(state.draft.roster.length ? "Blank draft created (defaults loaded)." : "Blank draft created (no defaults found).");
-    renderAll();
-  });
-
-  // Clone prev published -> draft
-  $("#btnClonePrevPublished").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-
-    const week = state.currentWeekOf;
-    const prevWeek = isoAddDays(week, -7);
-    const prevPublished = await getSchedule(prevWeek, "published");
-
-    if(!prevPublished) return toast(`No published schedule for ${prevWeek}.`);
-
-    state.draft = deepClone(prevPublished);
-    state.draft.weekOf = week;
-
-    state.draft.locations ||= LOCATIONS;
-    state.draft.providers = normalizeProviders(state.draft.providers || []);
-    state.draft.providerAssignments ||= {};
-    state.draft.xrLocationAssignments ||= {};
-    state.draft.roster ||= [];
-    ensureEntriesForRoster(state.draft);
-
-    if(!state.weeks.includes(week)){
-      state.weeks = sortWeeksDesc(Array.from(new Set([week, ...state.weeks])));
-      renderWeekPickers();
-      setAllWeekPickers(week);
-    }
-
-    toast(`Cloned ${prevWeek} published → ${week} draft.`);
-    renderAll();
-  });
-
-  // Clone only provider assignments from prev published
-  $("#btnClonePrevAssignments").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-
-    const week = state.currentWeekOf;
-    const prevWeek = isoAddDays(week, -7);
-    const prevPublished = await getSchedule(prevWeek, "published");
-
-    if(!prevPublished) return toast(`No published schedule for ${prevWeek}.`);
-
-    payload.providers = normalizeProviders(prevPublished.providers || payload.providers || []);
-    payload.providerAssignments = deepClone(prevPublished.providerAssignments || {});
-    payload.xrLocationAssignments = deepClone(prevPublished.xrLocationAssignments || {});
-    payload.locations ||= LOCATIONS;
-
-    toast(`Cloned provider assignments from ${prevWeek}.`);
+    const data = await loadDefaults("roster");
+    if(!data?.roster?.length) return toast("No default roster found.");
+    const payload = ensureDraftForWeek(state.currentWeekOf);
+    // merge roster defaults without nuking existing schedule entries
+    const defaults = data.roster.map(r => ({
+      id: r.id || slug(r.name),
+      name: r.name,
+      role: r.role || "MA",
+      email: r.email || ""
+    }));
+    mergeRoster(payload, defaults);
+    toast("Default roster loaded into Draft.");
     renderBuilder();
   });
 
-  // Provider add
-  $("#btnAddProvider").addEventListener("click", ()=>{
+  // Defaults: providers
+  $("#btnSaveDefaultProviders").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-
-    const name = prompt("Provider name (ex: Dr. Pelton)");
-    if(!name) return;
-
-    payload.providers ||= [];
-    payload.providers.push({ id: providerId(name), name: name.trim() });
-    payload.providers = normalizeProviders(payload.providers);
-
-    payload.providerAssignments ||= {};
-    payload.xrLocationAssignments ||= {};
-
-    toast("Provider added.");
-    renderProviderBuilder(payload);
+    const payload = ensureDraftForWeek(state.currentWeekOf);
+    const providers = payload.providers || [];
+    const p = { weekOf: DEFAULTS_PK, providers };
+    try{
+      await saveSchedule(DEFAULT_PROVIDERS_RK, p);
+      toast("Default providers saved.");
+    }catch(e){
+      console.error(e);
+      toast("Default providers save failed.");
+    }
   });
 
-  // Provider bulk add
-  $("#btnAddProviderBulk").addEventListener("click", ()=>{
+  $("#btnLoadDefaultProviders").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-
-    const raw = ($("#providerBulk").value || "").trim();
-    if(!raw) return toast("Paste provider names first.");
-
-    const lines = raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-    payload.providers ||= [];
-    const existing = new Set(payload.providers.map(p=>p.id));
-
-    let added = 0;
-    lines.forEach(n=>{
-      const id = providerId(n);
-      if(existing.has(id)) return;
-      payload.providers.push({ id, name: n });
-      existing.add(id);
-      added++;
-    });
-
-    $("#providerBulk").value = "";
-    payload.providers = normalizeProviders(payload.providers);
-
-    payload.providerAssignments ||= {};
-    payload.xrLocationAssignments ||= {};
-
-    toast(`Added ${added} provider(s).`);
-    renderProviderBuilder(payload);
-  });
-
-  // Bulk apply to checked providers
-  $("#btnApplyBulk").addEventListener("click", ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-
-    const loc = ($("#bulkLoc").value || "").trim();
-    const ma = ($("#bulkMA").value || "").trim();
-    const xr = ($("#bulkXR").value || "").trim();
-
-    if(!loc) return toast("Pick a bulk location.");
-    if(!ma) return toast("Pick a bulk MA.");
-
-    const checked = Array.from(document.querySelectorAll(".provPick:checked")).map(x=>x.dataset.pick);
-    if(!checked.length) return toast("Check at least one provider.");
-
-    payload.providerAssignments ||= {};
-
-    checked.forEach(pid=>{
-      payload.providerAssignments[pid] ||= {};
-      payload.providerAssignments[pid].locationCode = loc;
-      payload.providerAssignments[pid].maStaffId = ma;
-      if(xr) payload.providerAssignments[pid].xrStaffId = xr;
-    });
-
-    toast(`Applied to ${checked.length} provider(s).`);
-    renderProviderAssignGrid(payload);
+    const data = await loadDefaults("providers");
+    if(!data?.providers?.length) return toast("No default providers found.");
+    const payload = ensureDraftForWeek(state.currentWeekOf);
+    payload.providers = mergeProviders(payload.providers || [], data.providers);
+    toast("Default providers loaded into Draft.");
+    renderProviders(payload);
   });
 
   // Filters
@@ -617,7 +519,9 @@ function renderWeekPickers(){
   $("#weekPickEveryone").innerHTML = opts;
   $("#weekPickBuilder").innerHTML = opts;
 
-  setAllWeekPickers(state.currentWeekOf);
+  $("#weekPickMy").value = state.currentWeekOf;
+  $("#weekPickEveryone").value = state.currentWeekOf;
+  $("#weekPickBuilder").value = state.currentWeekOf;
 
   $("#weekPickMy").onchange = async (e)=>{ await changeWeek(e.target.value); };
   $("#weekPickEveryone").onchange = async (e)=>{ await changeWeek(e.target.value); };
@@ -649,8 +553,6 @@ function getActiveForViewing(){
   return state.published;
 }
 
-/* ---------------- MY VIEW ---------------- */
-
 function renderMy(){
   const sched = getActiveForViewing();
   const meEmail = (state.auth.email || "").toLowerCase();
@@ -673,7 +575,7 @@ function renderMy(){
 
   if(!me){
     $("#myMatchPill").textContent = "No match";
-    $("#todayCard").innerHTML = `<div class="muted">Your email (${escapeHtml(state.auth.email)}) isn’t mapped to roster for this week.</div>`;
+    $("#todayCard").innerHTML = `<div class="muted">Your email (${escapeHtml(state.auth.email)}) isn’t mapped to the roster for this week.</div>`;
     $("#weekCards").innerHTML = `<div class="muted">Ask an editor to add your email in Builder → Roster.</div>`;
     return;
   }
@@ -685,8 +587,7 @@ function renderMy(){
   const todayVal = (todayName && entries[todayName]) ? templateTextById(sched, entries[todayName]) : null;
 
   $("#todayCard").innerHTML = `
-    <div style="font-weight:900; color:var(--navy)">${formatLongDate(new Date())}</div>
-    <div style="margin-top:6px">${todayName ? `<span class="roleTag" style="margin-left:0">${todayName}</span>` : ""}</div>
+    <div style="font-weight:900; color:var(--char)">${formatLongDate(new Date())}</div>
     <div style="margin-top:10px; font-size:16px; font-weight:900">${escapeHtml(todayVal || "No assignment today")}</div>
   `;
 
@@ -697,15 +598,13 @@ function renderMy(){
       <div class="dayCard">
         <div>
           <div class="dayName">${d}</div>
-          <div class="roleTag" style="margin-left:0">${me.role}</div>
+          <div class="muted small">${escapeHtml(me.role)}</div>
         </div>
         <div class="dayValue">${escapeHtml(txt)}</div>
       </div>
     `;
   }).join("");
 }
-
-/* ---------------- EVERYONE VIEW ---------------- */
 
 function renderEveryone(){
   const sched = getActiveForViewing();
@@ -728,8 +627,8 @@ function renderEveryone(){
 
   thead.innerHTML = `
     <tr>
-      <th style="min-width:240px;text-align:left;">Team Member</th>
-      ${DAYS.map(d=>`<th style="min-width:210px;text-align:left;">${d}</th>`).join("")}
+      <th style="min-width:220px;text-align:left;">Team Member</th>
+      ${DAYS.map(d=>`<th style="min-width:170px;text-align:left;">${d}</th>`).join("")}
     </tr>
   `;
 
@@ -751,8 +650,6 @@ function renderEveryone(){
   }).join("");
 }
 
-/* ---------------- BUILDER VIEW ---------------- */
-
 function renderBuilder(){
   if(!state.auth.editor){
     $("#builderStatus").textContent = "Editors only";
@@ -768,150 +665,256 @@ function renderBuilder(){
     pub ? "No draft loaded (published exists)" :
     "No data loaded for this week";
 
+  if(!draft && pub){
+    state.draft = deepClone(pub);
+  }
+
   const payload = ensureDraftWeek(false);
   if(!payload){
-    renderEmptyBuilder();
+    $("#rosterEmailList").innerHTML = `<div class="muted">Import Schedule CSV, or Load Published, or Load Default Roster.</div>`;
+    $("#templateList").innerHTML = `<div class="muted">—</div>`;
+    $("#builderGrid").querySelector("thead").innerHTML = "";
+    $("#builderGrid").querySelector("tbody").innerHTML = `<tr><td class="muted" style="padding:14px">—</td></tr>`;
+    $("#providerList").innerHTML = `<div class="muted">Import providers, load defaults, or add manually.</div>`;
     return;
   }
 
   renderRoster(payload);
   renderTemplateList(payload);
   renderBuilderGrid(payload);
-  renderProviderBuilder(payload);
+  renderProviders(payload);
 }
 
-function renderEmptyBuilder(){
-  $("#rosterEmailList").innerHTML = `<div class="muted">Click New Blank Week, import schedule CSV, or load a draft.</div>`;
-  $("#templateList").innerHTML = `<div class="muted">—</div>`;
-  $("#builderGrid").querySelector("thead").innerHTML = "";
-  $("#builderGrid").querySelector("tbody").innerHTML = `<tr><td class="muted" style="padding:14px">—</td></tr>`;
-
-  $("#providerList").innerHTML = `<div class="muted">No draft loaded.</div>`;
-  $("#xrByLocation").innerHTML = `<div class="muted">—</div>`;
-  $("#providerAssignGrid").querySelector("thead").innerHTML = "";
-  $("#providerAssignGrid").querySelector("tbody").innerHTML = `<tr><td class="muted" style="padding:14px">—</td></tr>`;
-}
+/* ---------------- Draft helpers ---------------- */
 
 function ensureDraftWeek(showToastOnFail=true){
   if(!state.draft){
-    if(showToastOnFail) toast("No draft loaded. Click New Blank Week or Import Schedule CSV.");
+    if(showToastOnFail) toast("No draft loaded. Import schedule or load published/defaults.");
     return null;
   }
   if(!state.draft.weekOf) state.draft.weekOf = state.currentWeekOf;
-  state.draft.templates ||= [];
-  state.draft.entries ||= {};
-  state.draft.roster ||= [];
-
-  state.draft.locations ||= LOCATIONS;
-  state.draft.providers ||= [];
-  state.draft.providerAssignments ||= {};
-  state.draft.xrLocationAssignments ||= {};
-
+  if(!state.draft.templates) state.draft.templates = [];
+  if(!state.draft.entries) state.draft.entries = {};
+  if(!state.draft.roster) state.draft.roster = [];
+  if(!state.draft.providers) state.draft.providers = [];
   return state.draft;
 }
 
-/* ---------------- Roster UI ---------------- */
+function ensureDraftForWeek(weekOf){
+  if(!state.draft || state.draft.weekOf !== weekOf){
+    state.draft = {
+      weekOf,
+      roster: [],
+      templates: defaultTemplates().map(t=>normalizeTemplate(t)),
+      entries: {},
+      providers: []
+    };
+  }
+  // make sure base structure exists
+  ensureDraftWeek(false);
+  return state.draft;
+}
+
+function blankWeekEntries(){
+  const o = {};
+  DAYS.forEach(d => o[d] = null);
+  return o;
+}
+
+/* ---------------- Roster ---------------- */
 
 function renderRoster(payload){
   const wrap = $("#rosterEmailList");
   if(!payload.roster.length){
-    wrap.innerHTML = `<div class="muted">No roster yet. Import Staff CSV or Load Default Roster.</div>`;
+    wrap.innerHTML = `<div class="muted">No roster loaded. Import staff or load default roster.</div>`;
     return;
   }
 
-  payload.roster = payload.roster
-    .map(r => ({
-      id: r.id || staffIdFromEmail(r.email || r.name || ""),
-      name: (r.name || "").trim(),
-      role: (r.role === "XR") ? "XR" : "MA",
-      email: (r.email || "").trim().toLowerCase()
-    }))
-    .filter(r => r.name || r.email)
-    .sort((a,b)=> (a.name || a.email).localeCompare(b.name || b.email));
-
-  wrap.innerHTML = payload.roster.map(r => `
-    <div class="templateItem">
-      <div class="templateTop">
-        <div>
-          <div class="templateName">${escapeHtml(r.name || "(No name)")} <span class="roleTag">${r.role}</span></div>
-          <div class="templateMeta">${escapeHtml(r.id)}</div>
+  wrap.innerHTML = payload.roster
+    .slice()
+    .sort((a,b)=>a.name.localeCompare(b.name))
+    .map(r => `
+      <div class="templateItem">
+        <div class="templateTop">
+          <div>
+            <div class="templateName">${escapeHtml(r.name)} <span class="roleTag">${r.role}</span></div>
+            <div class="templateMeta">${escapeHtml(r.id)}</div>
+          </div>
         </div>
-        <div>
-          <button class="iconBtn" title="Delete" data-staff-del="${r.id}">🗑</button>
+        <div style="margin-top:10px" class="field">
+          <label>Email</label>
+          <input data-email-for="${r.id}" type="email" placeholder="name@laorthos.com" value="${escapeHtml(r.email || "")}">
         </div>
       </div>
+    `).join("");
 
-      <div style="margin-top:10px" class="field">
-        <label>Name</label>
-        <input data-staff-name="${r.id}" type="text" value="${escapeHtml(r.name || "")}">
-      </div>
-
-      <div style="margin-top:10px" class="field">
-        <label>Email</label>
-        <input data-staff-email="${r.id}" type="email" placeholder="user@laorthos.com" value="${escapeHtml(r.email || "")}">
-      </div>
-
-      <div style="margin-top:10px" class="field">
-        <label>Role</label>
-        <select data-staff-role="${r.id}">
-          <option value="MA" ${r.role==="MA"?"selected":""}>MA</option>
-          <option value="XR" ${r.role==="XR"?"selected":""}>XR</option>
-        </select>
-      </div>
-    </div>
-  `).join("");
-
-  wrap.querySelectorAll("input[data-staff-name]").forEach(inp=>{
-    inp.addEventListener("input", ()=>{
-      const id = inp.dataset.staffName;
-      const person = payload.roster.find(x => x.id === id);
-      if(person) person.name = (inp.value || "").trim();
-      renderProviderBuilder(payload);
-      renderBuilderGrid(payload);
-    });
-  });
-
-  wrap.querySelectorAll("input[data-staff-email]").forEach(inp=>{
-    inp.addEventListener("input", ()=>{
-      const id = inp.dataset.staffEmail;
-      const person = payload.roster.find(x => x.id === id);
-      if(person) person.email = (inp.value || "").trim().toLowerCase();
-    });
-  });
-
-  wrap.querySelectorAll("select[data-staff-role]").forEach(sel=>{
-    sel.addEventListener("change", ()=>{
-      const id = sel.dataset.staffRole;
-      const person = payload.roster.find(x => x.id === id);
-      if(person) person.role = (sel.value === "XR") ? "XR" : "MA";
-      renderProviderBuilder(payload);
-      renderBuilderGrid(payload);
-    });
-  });
-
-  wrap.querySelectorAll("[data-staff-del]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const id = btn.dataset.staffDel;
-      payload.roster = payload.roster.filter(x=>x.id!==id);
-      delete payload.entries[id];
-      toast("Staff removed.");
-      ensureEntriesForRoster(payload);
-      renderBuilder();
+  wrap.querySelectorAll("input[data-email-for]").forEach(inp => {
+    inp.addEventListener("input", () => {
+      const pid = inp.dataset.emailFor;
+      const val = (inp.value || "").trim();
+      const person = payload.roster.find(x => x.id === pid);
+      if (person) person.email = val;
     });
   });
 }
 
-function ensureEntriesForRoster(payload){
-  payload.entries ||= {};
+function parseStaffCSV(text){
+  const rows = csvToRows(text).filter(r => r.some(x => (x||"").trim() !== ""));
+  if(!rows.length) return [];
+
+  const header = rows[0].map(x => (x||"").trim().toLowerCase());
+  const idxFirst = header.findIndex(h => ["first name","firstname","first"].includes(h));
+  const idxLast = header.findIndex(h => ["last name","lastname","last"].includes(h));
+  const idxEmail = header.findIndex(h => ["email","e-mail","user principal name","upn"].includes(h));
+
+  if(idxEmail < 0) throw new Error("No Email column found.");
+
+  const out = [];
+  for(let i=1;i<rows.length;i++){
+    const r = rows[i];
+    const email = (r[idxEmail]||"").trim();
+    if(!email) continue;
+
+    const first = idxFirst >= 0 ? (r[idxFirst]||"").trim() : "";
+    const last = idxLast >= 0 ? (r[idxLast]||"").trim() : "";
+    const name = (first || last) ? `${first} ${last}`.trim() : email.split("@")[0];
+
+    out.push({ name, email });
+  }
+  return out;
+}
+
+function mergeStaffIntoRoster(payload, staff, { defaultRole="MA" } = {}){
+  const existingByEmail = new Map(
+    (payload.roster||[]).map(r => [(r.email||"").toLowerCase(), r])
+  );
+
+  staff.forEach(s=>{
+    const email = (s.email||"").trim();
+    if(!email) return;
+    const emailKey = email.toLowerCase();
+
+    if(existingByEmail.has(emailKey)){
+      const person = existingByEmail.get(emailKey);
+      if(!person.name && s.name) person.name = s.name;
+      if(!person.role) person.role = defaultRole;
+      return;
+    }
+
+    const name = (s.name||"").trim() || email.split("@")[0];
+    const id = slug(name);
+
+    // if id exists, still allow but modify
+    const idFinal = payload.roster.some(r=>r.id===id) ? `${id}-${Math.random().toString(16).slice(2,6)}` : id;
+
+    const person = { id: idFinal, name, role: defaultRole, email };
+    payload.roster.push(person);
+    payload.entries[idFinal] = payload.entries[idFinal] || blankWeekEntries();
+    existingByEmail.set(emailKey, person);
+  });
+
+  // ensure every roster has entry object
   payload.roster.forEach(r=>{
-    if(!payload.entries[r.id]) payload.entries[r.id] = {};
-    DAYS.forEach(d=>{
-      if(payload.entries[r.id][d] === undefined) payload.entries[r.id][d] = null;
+    payload.entries[r.id] = payload.entries[r.id] || blankWeekEntries();
+  });
+}
+
+function mergeRoster(payload, rosterList){
+  const byId = new Map((payload.roster||[]).map(r=>[r.id, r]));
+  rosterList.forEach(r=>{
+    const id = r.id || slug(r.name);
+    if(byId.has(id)){
+      const existing = byId.get(id);
+      existing.name = r.name || existing.name;
+      existing.role = r.role || existing.role;
+      existing.email = r.email || existing.email;
+      return;
+    }
+    payload.roster.push({ id, name:r.name, role:r.role||"MA", email:r.email||"" });
+    payload.entries[id] = payload.entries[id] || blankWeekEntries();
+    byId.set(id, true);
+  });
+}
+
+/* ---------------- Providers ---------------- */
+
+function parseProvidersCSV(text){
+  // Your uploaded providers.csv is a single-column list with "Provider List" header.
+  const rows = csvToRows(text).map(r => (r[0]||"").trim()).filter(Boolean);
+  if(!rows.length) return [];
+
+  // If first row looks like a header, drop it
+  const first = rows[0].toLowerCase();
+  const startIdx = (first.includes("provider")) ? 1 : 0;
+
+  const out = [];
+  for(let i=startIdx;i<rows.length;i++){
+    const name = rows[i].trim();
+    if(!name) continue;
+    out.push({ id: slug(name), name });
+  }
+  return out;
+}
+
+function mergeProviders(current, incoming){
+  const byName = new Map((current||[]).map(p => [(p.name||"").toLowerCase(), p]));
+  incoming.forEach(p=>{
+    const name = (p.name||"").trim();
+    if(!name) return;
+    const key = name.toLowerCase();
+    if(byName.has(key)) return;
+    byName.set(key, { id: p.id || slug(name), name });
+  });
+  return Array.from(byName.values()).sort((a,b)=>a.name.localeCompare(b.name));
+}
+
+function renderProviders(payload){
+  const list = $("#providerList");
+  const providers = payload.providers || [];
+  if(!providers.length){
+    list.innerHTML = `<div class="muted">No providers loaded.</div>`;
+    return;
+  }
+
+  list.innerHTML = providers
+    .slice()
+    .sort((a,b)=>a.name.localeCompare(b.name))
+    .map(p => `
+      <div class="providerRow">
+        <div style="font-weight:900;color:rgba(31,41,55,.95)">${escapeHtml(p.name)}</div>
+        <button class="iconBtn" title="Delete" data-prov-del="${escapeHtml(p.id)}">🗑</button>
+      </div>
+    `).join("");
+
+  list.querySelectorAll("[data-prov-del]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const id = btn.dataset.provDel;
+      payload.providers = (payload.providers||[]).filter(x=>x.id !== id);
+      toast("Provider deleted.");
+      renderProviders(payload);
     });
   });
 }
 
-/* ---------------- Templates + Weekly Grid ---------------- */
+/* ---------------- Templates ---------------- */
+
+function defaultTemplates(){
+  return [
+    { id: idForRaw("OFF"), raw:"OFF" },
+    { id: idForRaw("TRAINING 08:00- 04:30"), raw:"TRAINING 08:00- 04:30" },
+    { id: idForRaw("FLOAT (VAL) 08:00- 04:30"), raw:"FLOAT (VAL) 08:00- 04:30" },
+  ];
+}
+
+function normalizeTemplates(arr){
+  return (arr || []).map(t => normalizeTemplate(t));
+}
+
+function normalizeTemplate(t){
+  const raw = (t.raw || "").trim();
+  const parsed = parseCell(raw);
+  return { id: t.id || idForRaw(raw), raw, parsed };
+}
 
 function renderTemplateList(payload){
   const list = $("#templateList");
@@ -940,13 +943,11 @@ function renderTemplateList(payload){
 
   list.querySelectorAll("[data-del]").forEach(btn=>{
     btn.addEventListener("click", ()=>{
-      const payload2 = ensureDraftWeek();
-      if(!payload2) return;
       const id = btn.dataset.del;
-      payload2.templates = payload2.templates.filter(x=>x.id !== id);
-      Object.keys(payload2.entries).forEach(pid=>{
+      payload.templates = payload.templates.filter(x=>x.id !== id);
+      Object.keys(payload.entries).forEach(pid=>{
         DAYS.forEach(d=>{
-          if(payload2.entries[pid]?.[d] === id) payload2.entries[pid][d] = null;
+          if(payload.entries[pid]?.[d] === id) payload.entries[pid][d] = null;
         });
       });
       toast("Template deleted.");
@@ -954,6 +955,38 @@ function renderTemplateList(payload){
     });
   });
 }
+
+function openAddTemplateModal(){
+  const payload = ensureDraftWeek();
+  if(!payload) return;
+
+  openModal({
+    title: "Add template",
+    body: `
+      <div class="field" style="min-width:100%">
+        <label>Template text</label>
+        <input id="tplRaw" type="text" placeholder='Example: XR (SFS) 07:50- 04:20' />
+        <div class="hint">Examples: OFF • TRAINING 08:00- 04:30 • FLOAT (VAL) 08:00- 04:30</div>
+      </div>
+    `,
+    foot: `
+      <button class="btn btnGhost" data-close="1">Cancel</button>
+      <button class="btn" id="tplSave">Add</button>
+    `,
+    onAfter(){
+      $("#tplSave").addEventListener("click", ()=>{
+        const raw = ($("#tplRaw").value || "").trim();
+        if(!raw) return toast("Enter template text.");
+        payload.templates.push(normalizeTemplate({ id: idForRaw(raw), raw }));
+        closeModal();
+        toast("Template added.");
+        renderBuilder();
+      });
+    }
+  });
+}
+
+/* ---------------- Builder grid ---------------- */
 
 function renderBuilderGrid(payload){
   const table = $("#builderGrid");
@@ -966,36 +999,37 @@ function renderBuilderGrid(payload){
     return;
   }
 
-  ensureEntriesForRoster(payload);
-
   thead.innerHTML = `
     <tr>
-      <th style="min-width:240px;text-align:left;">Team Member</th>
-      ${DAYS.map(d=>`<th style="min-width:210px;text-align:left;">${d}</th>`).join("")}
+      <th style="min-width:220px;text-align:left;">Team Member</th>
+      ${DAYS.map(d=>`<th style="min-width:170px;text-align:left;">${d}</th>`).join("")}
     </tr>
   `;
 
-  tbody.innerHTML = payload.roster.map(r=>{
-    const e = payload.entries?.[r.id] || {};
-    return `
-      <tr>
-        <td class="nameCell">
-          ${escapeHtml(r.name || r.email || "Staff")} <span class="roleTag">${r.role}</span>
-        </td>
-        ${DAYS.map(d=>{
-          const tid = e[d];
-          const txt = tid ? templateTextById(payload, tid) : "";
-          return `
-            <td>
-              <button class="cellBtn" data-pid="${r.id}" data-day="${d}">
-                ${escapeHtml(txt || "—")}
-              </button>
-            </td>
-          `;
-        }).join("")}
-      </tr>
-    `;
-  }).join("");
+  tbody.innerHTML = payload.roster
+    .slice()
+    .sort((a,b)=>a.name.localeCompare(b.name))
+    .map(r=>{
+      const e = payload.entries?.[r.id] || {};
+      return `
+        <tr>
+          <td class="nameCell">
+            ${escapeHtml(r.name)} <span class="roleTag">${r.role}</span>
+          </td>
+          ${DAYS.map(d=>{
+            const tid = e[d];
+            const txt = tid ? templateTextById(payload, tid) : "";
+            return `
+              <td>
+                <button class="cellBtn" data-pid="${r.id}" data-day="${d}">
+                  ${escapeHtml(txt || "—")}
+                </button>
+              </td>
+            `;
+          }).join("")}
+        </tr>
+      `;
+    }).join("");
 
   tbody.querySelectorAll(".cellBtn").forEach(btn=>{
     btn.addEventListener("click", ()=>{
@@ -1021,7 +1055,7 @@ function openCellPicker(payload, personId, day){
   ].join("");
 
   openModal({
-    title: `Assign: ${person?.name || person?.email || "Staff"} • ${day}`,
+    title: `Assign: ${person?.name || "Staff"} • ${day}`,
     body: `
       <div class="field" style="min-width:100%">
         <label>Template</label>
@@ -1035,242 +1069,12 @@ function openCellPicker(payload, personId, day){
     onAfter(){
       $("#cellSave").addEventListener("click", ()=>{
         const val = $("#cellPick").value || null;
-        if(!payload.entries[personId]) payload.entries[personId] = {};
+        if(!payload.entries[personId]) payload.entries[personId] = blankWeekEntries();
         payload.entries[personId][day] = val;
         closeModal();
         renderBuilderGrid(payload);
       });
     }
-  });
-}
-
-function openAddTemplateModal(){
-  const payload = ensureDraftWeek();
-  if(!payload) return;
-
-  openModal({
-    title: "Add template",
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Template text</label>
-        <input id="tplRaw" type="text" placeholder='Example: XR (SFS) 07:50- 04:20' />
-        <div class="hint">Examples: OFF, TRAINING 08:00- 04:30, FLOAT (Val) 08:00- 04:30</div>
-      </div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn" id="tplSave">Add</button>
-    `,
-    onAfter(){
-      $("#tplSave").addEventListener("click", ()=>{
-        const raw = ($("#tplRaw").value || "").trim();
-        if(!raw) return toast("Enter template text.");
-        payload.templates.push(normalizeTemplate({ id: idForRaw(raw), raw }));
-        closeModal();
-        toast("Template added.");
-        renderBuilder();
-      });
-    }
-  });
-}
-
-/* ---------------- Provider Builder ---------------- */
-
-function renderProviderBuilder(payload){
-  payload.locations ||= LOCATIONS;
-  payload.providers = normalizeProviders(payload.providers || []);
-  payload.providerAssignments ||= {};
-  payload.xrLocationAssignments ||= {};
-
-  renderProviderList(payload);
-  renderXRByLocation(payload);
-  renderBulkControls(payload);
-  renderProviderAssignGrid(payload);
-}
-
-function normalizeProviders(list){
-  const out = [];
-  const seen = new Set();
-  list.forEach(p=>{
-    if(!p) return;
-    const name = (typeof p === "string" ? p : (p.name || "")).trim();
-    if(!name) return;
-    const id = (typeof p === "string" ? providerId(name) : (p.id || providerId(name)));
-    if(seen.has(id)) return;
-    seen.add(id);
-    out.push({ id, name });
-  });
-  return out.sort((a,b)=>a.name.localeCompare(b.name));
-}
-
-function renderProviderList(payload){
-  const wrap = $("#providerList");
-  if(!payload.providers.length){
-    wrap.innerHTML = `<div class="muted">No providers yet. Add or bulk add.</div>`;
-    return;
-  }
-
-  wrap.innerHTML = payload.providers.map(p=>`
-    <div class="providerRow">
-      <input data-prov-name="${p.id}" type="text" value="${escapeHtml(p.name)}" />
-      <button class="iconBtn" title="Delete" data-prov-del="${p.id}">🗑</button>
-    </div>
-  `).join("");
-
-  wrap.querySelectorAll("input[data-prov-name]").forEach(inp=>{
-    inp.addEventListener("input", ()=>{
-      const id = inp.dataset.provName;
-      const val = (inp.value || "").trim();
-      const prov = payload.providers.find(x=>x.id===id);
-      if(prov) prov.name = val;
-      renderProviderAssignGrid(payload);
-    });
-  });
-
-  wrap.querySelectorAll("[data-prov-del]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const id = btn.dataset.provDel;
-      payload.providers = payload.providers.filter(x=>x.id!==id);
-      delete payload.providerAssignments[id];
-      toast("Provider deleted.");
-      renderProviderBuilder(payload);
-    });
-  });
-}
-
-function rosterOptions(payload, role, allowBlank){
-  const list = (payload.roster || []).filter(r=>r.role===role).slice().sort((a,b)=>a.name.localeCompare(b.name));
-  return (current)=>{
-    const base = allowBlank ? [`<option value="">— None —</option>`] : [];
-    const opts = list.map(r=>`<option value="${r.id}" ${r.id===current?"selected":""}>${escapeHtml(r.name || r.email)}</option>`);
-    return base.concat(opts).join("");
-  };
-}
-
-function renderXRByLocation(payload){
-  const wrap = $("#xrByLocation");
-  const xrOptions = rosterOptions(payload, "XR", true);
-
-  wrap.innerHTML = payload.locations.map(loc=>{
-    const cur = payload.xrLocationAssignments?.[loc.code] || "";
-    return `
-      <div class="locCard">
-        <div class="locTitle">${escapeHtml(loc.name)} <span class="roleTag">${escapeHtml(loc.code)}</span></div>
-        <div class="field" style="min-width:100%">
-          <label>XR (location-only)</label>
-          <select data-xr-loc="${loc.code}">
-            ${xrOptions(cur)}
-          </select>
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  wrap.querySelectorAll("select[data-xr-loc]").forEach(sel=>{
-    sel.addEventListener("change", ()=>{
-      const code = sel.dataset.xrLoc;
-      const val = sel.value || "";
-      payload.xrLocationAssignments ||= {};
-      if(!val) delete payload.xrLocationAssignments[code];
-      else payload.xrLocationAssignments[code] = val;
-    });
-  });
-}
-
-function renderBulkControls(payload){
-  const locSel = $("#bulkLoc");
-  const maSel = $("#bulkMA");
-  const xrSel = $("#bulkXR");
-  if(!locSel || !maSel || !xrSel) return;
-
-  locSel.innerHTML = [
-    `<option value="">— Select —</option>`,
-    ...payload.locations.map(l=>`<option value="${l.code}">${escapeHtml(l.name)} (${escapeHtml(l.code)})</option>`)
-  ].join("");
-
-  const maList = (payload.roster || []).filter(r=>r.role==="MA").slice().sort((a,b)=>a.name.localeCompare(b.name));
-  maSel.innerHTML = [
-    `<option value="">— Select —</option>`,
-    ...maList.map(r=>`<option value="${r.id}">${escapeHtml(r.name || r.email)}</option>`)
-  ].join("");
-
-  const xrList = (payload.roster || []).filter(r=>r.role==="XR").slice().sort((a,b)=>a.name.localeCompare(b.name));
-  xrSel.innerHTML = [
-    `<option value="">— None —</option>`,
-    ...xrList.map(r=>`<option value="${r.id}">${escapeHtml(r.name || r.email)}</option>`)
-  ].join("");
-}
-
-function renderProviderAssignGrid(payload){
-  const table = $("#providerAssignGrid");
-  const thead = table.querySelector("thead");
-  const tbody = table.querySelector("tbody");
-
-  if(!payload.providers.length){
-    thead.innerHTML = "";
-    tbody.innerHTML = `<tr><td class="muted" style="padding:14px">No providers yet.</td></tr>`;
-    return;
-  }
-
-  thead.innerHTML = `
-    <tr>
-      <th style="min-width:52px;text-align:left;">✓</th>
-      <th style="min-width:260px;text-align:left;">Provider</th>
-      <th style="min-width:220px;text-align:left;">Location</th>
-      <th style="min-width:260px;text-align:left;">MA</th>
-      <th style="min-width:260px;text-align:left;">XR (per provider)</th>
-    </tr>
-  `;
-
-  const locOptions = (cur)=> [
-    `<option value="">— Select —</option>`,
-    ...payload.locations.map(l=>`<option value="${l.code}" ${l.code===cur?"selected":""}>${escapeHtml(l.name)} (${escapeHtml(l.code)})</option>`)
-  ].join("");
-
-  const maOptions = rosterOptions(payload, "MA", true);
-  const xrOptions = rosterOptions(payload, "XR", true);
-
-  tbody.innerHTML = payload.providers.map(p=>{
-    const a = payload.providerAssignments?.[p.id] || {};
-    return `
-      <tr>
-        <td><input type="checkbox" class="provPick" data-pick="${p.id}" /></td>
-        <td class="nameCell">${escapeHtml(p.name)}</td>
-        <td><select data-assign-loc="${p.id}">${locOptions(a.locationCode || "")}</select></td>
-        <td><select data-assign-ma="${p.id}">${maOptions(a.maStaffId || "")}</select></td>
-        <td>
-          <select data-assign-xr="${p.id}">${xrOptions(a.xrStaffId || "")}</select>
-          <div class="muted small" style="margin-top:6px">Falls back to Location XR if blank.</div>
-        </td>
-      </tr>
-    `;
-  }).join("");
-
-  tbody.querySelectorAll("select[data-assign-loc]").forEach(sel=>{
-    sel.addEventListener("change", ()=>{
-      const pid = sel.dataset.assignLoc;
-      payload.providerAssignments ||= {};
-      payload.providerAssignments[pid] ||= {};
-      payload.providerAssignments[pid].locationCode = sel.value || "";
-    });
-  });
-
-  tbody.querySelectorAll("select[data-assign-ma]").forEach(sel=>{
-    sel.addEventListener("change", ()=>{
-      const pid = sel.dataset.assignMa;
-      payload.providerAssignments ||= {};
-      payload.providerAssignments[pid] ||= {};
-      payload.providerAssignments[pid].maStaffId = sel.value || "";
-    });
-  });
-
-  tbody.querySelectorAll("select[data-assign-xr]").forEach(sel=>{
-    sel.addEventListener("change", ()=>{
-      const pid = sel.dataset.assignXr;
-      payload.providerAssignments ||= {};
-      payload.providerAssignments[pid] ||= {};
-      payload.providerAssignments[pid].xrStaffId = sel.value || "";
-    });
   });
 }
 
@@ -1280,28 +1084,18 @@ function validate(payload){
   const issues = [];
 
   payload.roster.forEach(r=>{
-    if(!r.email) issues.push(`${r.name || r.id} missing email`);
+    if(!r.email) issues.push(`${r.name} missing email`);
   });
 
   payload.roster.forEach(r=>{
     const e = payload.entries?.[r.id] || {};
     DAYS.forEach(d=>{
       const v = e[d];
-      if(v === undefined || v === null || v === "") issues.push(`${r.name || r.email || r.id} missing ${d}`);
+      if(v === undefined || v === null || v === ""){
+        issues.push(`${r.name} missing ${d}`);
+      }
     });
   });
-
-  if(payload.providers?.length){
-    payload.providers.forEach(p=>{
-      const a = payload.providerAssignments?.[p.id];
-      if(!a?.locationCode) issues.push(`Provider "${p.name}" missing location`);
-      if(!a?.maStaffId) issues.push(`Provider "${p.name}" missing MA`);
-
-      const locXR = payload.xrLocationAssignments?.[a?.locationCode] || "";
-      const anyXR = (a?.xrStaffId || locXR);
-      if(!anyXR) issues.push(`Provider "${p.name}" missing XR (set per provider or location)`);
-    });
-  }
 
   return issues;
 }
@@ -1330,7 +1124,7 @@ function exportPublishedToCSV(){
   toast("CSV exported.");
 }
 
-/* ---------------- CSV parsing ---------------- */
+/* ---------------- Schedule CSV parsing ---------------- */
 
 function parseScheduleCSV(text){
   const rows = csvToRows(text);
@@ -1349,6 +1143,7 @@ function parseScheduleCSV(text){
   };
   if(Object.values(dayIdx).some(i=>i<0)) throw new Error("Missing weekday headers.");
 
+  // date above header like "03/02/2026- 03/06/2026"
   let weekOf = null;
   for(let i=headerIdx-1; i>=0; i--){
     const s = (rows[i][0]||"").trim();
@@ -1378,7 +1173,7 @@ function parseScheduleCSV(text){
     const id = slug(name);
 
     roster.push({ id, name, role, email: "" });
-    entries[id] = entries[id] || {};
+    entries[id] = entries[id] || blankWeekEntries();
 
     DAYS.forEach(d=>{
       const raw = (rows[i][dayIdx[d]]||"").trim();
@@ -1402,196 +1197,10 @@ function parseScheduleCSV(text){
     if(!templates.some(x=>x.id===t.id)) templates.push(normalizeTemplate(t));
   });
 
-  return {
-    weekOf,
-    roster,
-    templates,
-    entries,
-    locations: LOCATIONS,
-    providers: [],
-    providerAssignments: {},
-    xrLocationAssignments: {}
-  };
+  return { weekOf, roster, templates, entries, providers: [] };
 }
 
-function parseStaffCSV(text){
-  const rows = csvToRows(text).filter(r => r.some(c => (c||"").trim() !== ""));
-  if(rows.length < 2) throw new Error("Empty CSV");
-
-  const header = rows[0].map(h => normalizeHeader(h));
-  const idx = (name) => header.findIndex(h => h === name);
-
-  const iDisplay = idx("display_name");
-  const iFirst = idx("first_name");
-  const iLast = idx("last_name");
-  const iUPN = idx("user_principal_name");
-  const iEmail = idx("email");
-  const iRole = idx("role");
-
-  const out = [];
-
-  for(let r=1; r<rows.length; r++){
-    const row = rows[r];
-
-    const email = ((pick(row, iUPN) || pick(row, iEmail)) || "").trim().toLowerCase();
-    if(!email || !email.includes("@")) continue;
-
-    let name = (pick(row, iDisplay) || "").trim();
-    if(!name){
-      const fn = (pick(row, iFirst) || "").trim();
-      const ln = (pick(row, iLast) || "").trim();
-      name = `${fn} ${ln}`.trim();
-    }
-    if(!name) name = email.split("@")[0];
-
-    let role = (pick(row, iRole) || "").trim().toUpperCase();
-    // Option #2: default to MA if missing/invalid
-    role = (role === "XR" || role === "XRT") ? "XR" : "MA";
-
-    out.push({
-      id: staffIdFromEmail(email),
-      name,
-      role,
-      email
-    });
-  }
-
-  // Dedup by email (keep last occurrence)
-  const map = new Map();
-  out.forEach(p => map.set(p.email, p));
-  return Array.from(map.values()).sort((a,b)=>a.name.localeCompare(b.name));
-}
-
-function mergeRosterByEmail(existingRoster, importedRoster){
-  const existing = (existingRoster || []).map(r=>({
-    id: r.id || staffIdFromEmail(r.email || r.name || ""),
-    name: (r.name || "").trim(),
-    role: (r.role === "XR") ? "XR" : "MA",
-    email: (r.email || "").trim().toLowerCase()
-  }));
-
-  const byEmail = new Map(existing.filter(x=>x.email).map(x=>[x.email, x]));
-  let added = 0, updated = 0;
-
-  importedRoster.forEach(p=>{
-    const email = (p.email || "").toLowerCase();
-    if(!email) return;
-
-    const cur = byEmail.get(email);
-    if(cur){
-      const beforeName = cur.name;
-      const beforeRole = cur.role;
-
-      cur.name = p.name || cur.name;
-      cur.role = (p.role === "XR") ? "XR" : "MA";
-
-      if(cur.name !== beforeName || cur.role !== beforeRole) updated++;
-    }else{
-      existing.push({
-        id: p.id || staffIdFromEmail(email),
-        name: p.name,
-        role: (p.role === "XR") ? "XR" : "MA",
-        email
-      });
-      byEmail.set(email, existing[existing.length-1]);
-      added++;
-    }
-  });
-
-  // Keep any “name-only” people (no email) at the end
-  const withEmail = existing.filter(x=>x.email);
-  const noEmail = existing.filter(x=>!x.email);
-
-  withEmail.sort((a,b)=>a.name.localeCompare(b.name));
-  noEmail.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-
-  return { roster: withEmail.concat(noEmail), added, updated };
-}
-
-/* ---------------- Blank Draft from defaults ---------------- */
-
-async function createBlankDraftFromDefaults(weekOf, seedFromPublished){
-  const base = seedFromPublished ? deepClone(seedFromPublished) : null;
-
-  let roster = base?.roster?.length ? base.roster.map(r=>({
-    id: r.id || staffIdFromEmail(r.email || r.name || ""),
-    name: r.name,
-    role: (r.role === "XR") ? "XR" : "MA",
-    email: (r.email || "").toLowerCase()
-  })) : [];
-
-  if(!roster.length){
-    try{
-      const defaultRoster = await getDefaultRoster();
-      if(defaultRoster?.length){
-        roster = defaultRoster.map(r=>({
-          id: r.id || staffIdFromEmail(r.email || r.name || ""),
-          name: r.name,
-          role: (r.role === "XR") ? "XR" : "MA",
-          email: (r.email || "").toLowerCase()
-        }));
-      }
-    }catch(e){
-      console.warn("default roster load failed", e);
-    }
-  }
-
-  let providers = base?.providers?.length ? normalizeProviders(base.providers) : [];
-  if(!providers.length){
-    try{
-      const defaultProviders = await getDefaultProviders();
-      if(defaultProviders?.length){
-        providers = normalizeProviders(defaultProviders);
-      }
-    }catch(e){
-      console.warn("default providers load failed", e);
-    }
-  }
-
-  const templates = base?.templates?.length
-    ? base.templates.map(t=> normalizeTemplate({ id: t.id, raw: t.raw }))
-    : defaultTemplates().map(t=> normalizeTemplate(t));
-
-  const entries = {};
-  roster.forEach(r=>{
-    entries[r.id] = {};
-    DAYS.forEach(d => entries[r.id][d] = null);
-  });
-
-  const providerAssignments = base?.providerAssignments ? deepClone(base.providerAssignments) : {};
-  const xrLocationAssignments = base?.xrLocationAssignments ? deepClone(base.xrLocationAssignments) : {};
-
-  return {
-    weekOf,
-    roster,
-    templates,
-    entries,
-    locations: LOCATIONS,
-    providers,
-    providerAssignments,
-    xrLocationAssignments
-  };
-}
-
-/* ---------------- Templates ---------------- */
-
-function defaultTemplates(){
-  return [
-    { id: idForRaw("OFF"), raw:"OFF" },
-    { id: idForRaw("TRAINING 08:00- 04:30"), raw:"TRAINING 08:00- 04:30" },
-    { id: idForRaw("FLOAT (Val) 08:00- 04:30"), raw:"FLOAT (Val) 08:00- 04:30" },
-  ];
-}
-
-function normalizeTemplates(arr){
-  return (arr || []).map(t => normalizeTemplate(t));
-}
-
-function normalizeTemplate(t){
-  const raw = (t.raw || "").trim();
-  const parsed = parseCell(raw);
-  return { id: t.id || idForRaw(raw), raw, parsed };
-}
+/* ---------------- Template parsing ---------------- */
 
 function parseCell(raw){
   const s = (raw||"").trim();
@@ -1645,7 +1254,6 @@ function csvToRows(text){
   const lines = text.replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n");
   return lines.map(parseCSVLine);
 }
-
 function parseCSVLine(line){
   const out = [];
   let cur = "";
@@ -1667,33 +1275,11 @@ function parseCSVLine(line){
   out.push(cur);
   return out;
 }
-
-function pick(row, idx){
-  if(idx < 0) return "";
-  return row[idx] ?? "";
-}
-
-function normalizeHeader(h){
-  const s = (h || "").toString().trim().toLowerCase();
-  if(!s) return "";
-  const n = s.replace(/\s+/g, " ").replace(/[^a-z0-9 ]/g, "");
-
-  if(n === "display name" || n === "displayname") return "display_name";
-  if(n === "first name" || n === "firstname") return "first_name";
-  if(n === "last name" || n === "lastname") return "last_name";
-  if(n === "user principal name" || n === "userprincipalname" || n === "upn") return "user_principal_name";
-  if(n === "email" || n === "e mail" || n === "email address" || n === "mail") return "email";
-  if(n === "role" || n === "position") return "role";
-
-  return n.replace(/\s/g, "_");
-}
-
 function csvEscape(v){
   const s = (v ?? "").toString();
   if(/[,"\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
   return s;
 }
-
 function toISODate(mmddyyyy){
   const [mm,dd,yyyy] = mmddyyyy.split("/");
   return `${yyyy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`;
@@ -1704,12 +1290,6 @@ function mondayOf(date){
   const day = d.getDay();
   const diff = (day === 0 ? -6 : 1) - day;
   d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0,10);
-}
-
-function isoAddDays(iso, days){
-  const d = new Date(iso + "T00:00:00");
-  d.setDate(d.getDate() + days);
   return d.toISOString().slice(0,10);
 }
 
@@ -1729,22 +1309,7 @@ function slug(name){
     .toLowerCase()
     .replace(/[^a-z0-9]+/g,"-")
     .replace(/^-+|-+$/g,"")
-    .slice(0,60) || "staff";
-}
-
-function providerId(name){
-  return "p_" + slug(name);
-}
-
-function staffIdFromEmail(emailOrText){
-  const s = (emailOrText || "").toString().trim().toLowerCase();
-  if(!s) return "u_" + Math.random().toString(16).slice(2);
-  let h = 2166136261;
-  for(let i=0;i<s.length;i++){
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return "u_" + (h>>>0).toString(16);
+    .slice(0,60) || "item";
 }
 
 function idForRaw(raw){
@@ -1759,10 +1324,6 @@ function idForRaw(raw){
 
 function deepClone(obj){
   return JSON.parse(JSON.stringify(obj));
-}
-
-function sortWeeksDesc(arr){
-  return (arr || []).slice().sort((a,b)=> a < b ? 1 : -1);
 }
 
 function toast(msg){
