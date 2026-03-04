@@ -3,6 +3,17 @@ const DEFAULTS_PK = "__defaults__";
 const DEFAULT_ROSTER_RK = "roster";
 const DEFAULT_PROVIDERS_RK = "providers";
 
+const LOCATIONS = [
+  { code:"WIL", name:"Wilshire" },
+  { code:"SFS", name:"Santa Fe Springs" },
+  { code:"ELA", name:"East LA" },
+  { code:"GLE", name:"Glendale" },
+  { code:"TZ",  name:"Tarzana" },
+  { code:"ENC", name:"Encino" },
+  { code:"VAL", name:"Valencia" },
+  { code:"TO",  name:"Thousand Oaks" },
+];
+
 const $ = (sel) => document.querySelector(sel);
 
 const state = {
@@ -14,8 +25,6 @@ const state = {
 
   published: null,
   draft: null,
-
-  providers: [], // current working provider list (draft-level)
 };
 
 init().catch(err => {
@@ -239,30 +248,19 @@ function wireButtons(){
     });
   });
 
-  $("#btnAddTemplate").addEventListener("click", ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    openAddTemplateModal();
-  });
-
-  $("#btnAutoGuessEmails").addEventListener("click", ()=>{
+  $("#btnClearWeek").addEventListener("click", ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftWeek();
     if(!payload) return;
 
     payload.roster.forEach(r=>{
-      if(r.email) return;
-      const parts = r.name.toLowerCase().split(/\s+/).filter(Boolean);
-      if(parts.length < 2) return;
-      const first = parts[0];
-      const last = parts[parts.length-1];
-      r.email = `${first[0]}${last}@laorthos.com`;
+      payload.entries[r.id] = blankWeekEntries();
     });
-
-    toast("Auto-guess applied. Review.");
-    renderBuilder();
+    toast("Cleared all assignments for this week (Draft).");
+    renderBuilderGrid(payload);
   });
 
-  // Staff import (file picker)
+  // Staff import
   $("#btnImportStaffCSV").addEventListener("click", ()=> $("#staffFile").click());
   $("#staffFile").addEventListener("change", async (e)=>{
     const f = e.target.files?.[0];
@@ -283,7 +281,6 @@ function wireButtons(){
     }
   });
 
-  // Staff load from repo: /data/staff.csv
   $("#btnLoadStaffFromRepo").addEventListener("click", async ()=>{
     try{
       const res = await fetch("./data/staff.csv", { cache:"no-store" });
@@ -302,7 +299,6 @@ function wireButtons(){
     }
   });
 
-  // Add Staff manually
   $("#btnAddStaff").addEventListener("click", ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftForWeek(state.currentWeekOf);
@@ -339,7 +335,6 @@ function wireButtons(){
           if(!name) return toast("Name required.");
           const id = slug(name);
 
-          // avoid duplicates by email
           const emailLower = (email||"").toLowerCase();
           const existing = payload.roster.find(r => (r.email||"").toLowerCase() === emailLower && emailLower);
           if(existing){
@@ -347,10 +342,10 @@ function wireButtons(){
             return;
           }
 
-          if(!payload.roster.some(r=>r.id===id)){
-            payload.roster.push({ id, name, role, email });
-            payload.entries[id] = payload.entries[id] || blankWeekEntries();
-          }
+          const idFinal = payload.roster.some(r=>r.id===id) ? `${id}-${Math.random().toString(16).slice(2,6)}` : id;
+
+          payload.roster.push({ id: idFinal, name, role, email });
+          payload.entries[idFinal] = payload.entries[idFinal] || blankWeekEntries();
 
           closeModal();
           toast("Staff added.");
@@ -360,7 +355,7 @@ function wireButtons(){
     });
   });
 
-  // Providers import (file picker)
+  // Providers import
   $("#btnImportProvidersCSV").addEventListener("click", ()=> $("#providersFile").click());
   $("#providersFile").addEventListener("change", async (e)=>{
     const f = e.target.files?.[0];
@@ -379,7 +374,6 @@ function wireButtons(){
     }
   });
 
-  // Providers load from repo: /data/providers.csv
   $("#btnLoadProvidersFromRepo").addEventListener("click", async ()=>{
     try{
       const res = await fetch("./data/providers.csv", { cache:"no-store" });
@@ -396,7 +390,6 @@ function wireButtons(){
     }
   });
 
-  // Add Provider (single)
   $("#btnAddProvider").addEventListener("click", ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftForWeek(state.currentWeekOf);
@@ -427,7 +420,6 @@ function wireButtons(){
     });
   });
 
-  // Providers bulk add
   $("#btnAddProviderBulk").addEventListener("click", ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftForWeek(state.currentWeekOf);
@@ -441,20 +433,15 @@ function wireButtons(){
     renderProviders(payload);
   });
 
-  // Defaults: roster
+  // Defaults roster/providers
   $("#btnSaveDefaultRoster").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftWeek();
     if(!payload) return;
 
     const rosterOnly = { weekOf: DEFAULTS_PK, roster: payload.roster };
-    try{
-      await saveSchedule(DEFAULT_ROSTER_RK, rosterOnly);
-      toast("Default roster saved.");
-    }catch(e){
-      console.error(e);
-      toast("Default roster save failed.");
-    }
+    try{ await saveSchedule(DEFAULT_ROSTER_RK, rosterOnly); toast("Default roster saved."); }
+    catch(e){ console.error(e); toast("Default roster save failed."); }
   });
 
   $("#btnLoadDefaultRoster").addEventListener("click", async ()=>{
@@ -462,7 +449,6 @@ function wireButtons(){
     const data = await loadDefaults("roster");
     if(!data?.roster?.length) return toast("No default roster found.");
     const payload = ensureDraftForWeek(state.currentWeekOf);
-    // merge roster defaults without nuking existing schedule entries
     const defaults = data.roster.map(r => ({
       id: r.id || slug(r.name),
       name: r.name,
@@ -474,19 +460,13 @@ function wireButtons(){
     renderBuilder();
   });
 
-  // Defaults: providers
   $("#btnSaveDefaultProviders").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftForWeek(state.currentWeekOf);
     const providers = payload.providers || [];
     const p = { weekOf: DEFAULTS_PK, providers };
-    try{
-      await saveSchedule(DEFAULT_PROVIDERS_RK, p);
-      toast("Default providers saved.");
-    }catch(e){
-      console.error(e);
-      toast("Default providers save failed.");
-    }
+    try{ await saveSchedule(DEFAULT_PROVIDERS_RK, p); toast("Default providers saved."); }
+    catch(e){ console.error(e); toast("Default providers save failed."); }
   });
 
   $("#btnLoadDefaultProviders").addEventListener("click", async ()=>{
@@ -499,7 +479,7 @@ function wireButtons(){
     renderProviders(payload);
   });
 
-  // Filters
+  // Everyone filters
   $("#roleFilter").addEventListener("change", renderEveryone);
   $("#searchFilter").addEventListener("input", renderEveryone);
 
@@ -671,18 +651,18 @@ function renderBuilder(){
 
   const payload = ensureDraftWeek(false);
   if(!payload){
-    $("#rosterEmailList").innerHTML = `<div class="muted">Import Schedule CSV, or Load Published, or Load Default Roster.</div>`;
-    $("#templateList").innerHTML = `<div class="muted">—</div>`;
+    $("#rosterEmailList").innerHTML = `<div class="muted">Import schedule / load published / load defaults.</div>`;
+    $("#providerList").innerHTML = `<div class="muted">Import providers or load defaults.</div>`;
+    $("#locationList").innerHTML = renderLocationBadges();
     $("#builderGrid").querySelector("thead").innerHTML = "";
     $("#builderGrid").querySelector("tbody").innerHTML = `<tr><td class="muted" style="padding:14px">—</td></tr>`;
-    $("#providerList").innerHTML = `<div class="muted">Import providers, load defaults, or add manually.</div>`;
     return;
   }
 
   renderRoster(payload);
-  renderTemplateList(payload);
-  renderBuilderGrid(payload);
   renderProviders(payload);
+  renderLocations();
+  renderBuilderGrid(payload);
 }
 
 /* ---------------- Draft helpers ---------------- */
@@ -705,13 +685,15 @@ function ensureDraftForWeek(weekOf){
     state.draft = {
       weekOf,
       roster: [],
-      templates: defaultTemplates().map(t=>normalizeTemplate(t)),
+      templates: [],
       entries: {},
-      providers: []
+      providers: [],
+      // NEW: per-staff per-day assignment metadata
+      assignmentMeta: {} // { [staffId]: { Monday:{...}, ... } }
     };
   }
-  // make sure base structure exists
   ensureDraftWeek(false);
+  if(!state.draft.assignmentMeta) state.draft.assignmentMeta = {};
   return state.draft;
 }
 
@@ -719,6 +701,25 @@ function blankWeekEntries(){
   const o = {};
   DAYS.forEach(d => o[d] = null);
   return o;
+}
+
+/* ---------------- Locations ---------------- */
+
+function renderLocations(){
+  $("#locationList").innerHTML = LOCATIONS.map(l => `
+    <div class="locationRow">
+      <div style="font-weight:900;color:rgba(31,41,55,.95)">${escapeHtml(l.name)}</div>
+      <div class="roleTag">${escapeHtml(l.code)}</div>
+    </div>
+  `).join("");
+}
+
+function renderLocationBadges(){
+  return `<div class="muted">Loaded</div>`;
+}
+
+function locationOptionsHTML(selectedCode){
+  return LOCATIONS.map(l => `<option value="${l.code}" ${l.code===selectedCode?"selected":""}>${escapeHtml(l.name)} (${l.code})</option>`).join("");
 }
 
 /* ---------------- Roster ---------------- */
@@ -804,7 +805,6 @@ function mergeStaffIntoRoster(payload, staff, { defaultRole="MA" } = {}){
     const name = (s.name||"").trim() || email.split("@")[0];
     const id = slug(name);
 
-    // if id exists, still allow but modify
     const idFinal = payload.roster.some(r=>r.id===id) ? `${id}-${Math.random().toString(16).slice(2,6)}` : id;
 
     const person = { id: idFinal, name, role: defaultRole, email };
@@ -813,37 +813,19 @@ function mergeStaffIntoRoster(payload, staff, { defaultRole="MA" } = {}){
     existingByEmail.set(emailKey, person);
   });
 
-  // ensure every roster has entry object
   payload.roster.forEach(r=>{
     payload.entries[r.id] = payload.entries[r.id] || blankWeekEntries();
   });
-}
 
-function mergeRoster(payload, rosterList){
-  const byId = new Map((payload.roster||[]).map(r=>[r.id, r]));
-  rosterList.forEach(r=>{
-    const id = r.id || slug(r.name);
-    if(byId.has(id)){
-      const existing = byId.get(id);
-      existing.name = r.name || existing.name;
-      existing.role = r.role || existing.role;
-      existing.email = r.email || existing.email;
-      return;
-    }
-    payload.roster.push({ id, name:r.name, role:r.role||"MA", email:r.email||"" });
-    payload.entries[id] = payload.entries[id] || blankWeekEntries();
-    byId.set(id, true);
-  });
+  if(!payload.assignmentMeta) payload.assignmentMeta = {};
 }
 
 /* ---------------- Providers ---------------- */
 
 function parseProvidersCSV(text){
-  // Your uploaded providers.csv is a single-column list with "Provider List" header.
   const rows = csvToRows(text).map(r => (r[0]||"").trim()).filter(Boolean);
   if(!rows.length) return [];
 
-  // If first row looks like a header, drop it
   const first = rows[0].toLowerCase();
   const startIdx = (first.includes("provider")) ? 1 : 0;
 
@@ -896,97 +878,14 @@ function renderProviders(payload){
   });
 }
 
-/* ---------------- Templates ---------------- */
-
-function defaultTemplates(){
-  return [
-    { id: idForRaw("OFF"), raw:"OFF" },
-    { id: idForRaw("TRAINING 08:00- 04:30"), raw:"TRAINING 08:00- 04:30" },
-    { id: idForRaw("FLOAT (VAL) 08:00- 04:30"), raw:"FLOAT (VAL) 08:00- 04:30" },
-  ];
+function providerOptionsHTML(payload, selectedId){
+  const providers = (payload.providers||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const opts = [`<option value="">— Select provider —</option>`]
+    .concat(providers.map(p => `<option value="${p.id}" ${p.id===selectedId?"selected":""}>${escapeHtml(p.name)}</option>`));
+  return opts.join("");
 }
 
-function normalizeTemplates(arr){
-  return (arr || []).map(t => normalizeTemplate(t));
-}
-
-function normalizeTemplate(t){
-  const raw = (t.raw || "").trim();
-  const parsed = parseCell(raw);
-  return { id: t.id || idForRaw(raw), raw, parsed };
-}
-
-function renderTemplateList(payload){
-  const list = $("#templateList");
-  payload.templates = normalizeTemplates(payload.templates);
-
-  list.innerHTML = payload.templates.map(t=>{
-    const p = t.parsed;
-    const meta = p.type === "OFF"
-      ? "OFF"
-      : `${(p.site ? p.site : "—")} • ${(p.start||"")}–${(p.end||"")}`;
-
-    return `
-      <div class="templateItem">
-        <div class="templateTop">
-          <div>
-            <div class="templateName">${escapeHtml(p.label || t.raw)}</div>
-            <div class="templateMeta">${escapeHtml(meta)}</div>
-          </div>
-          <div>
-            <button class="iconBtn" title="Delete" data-del="${t.id}">🗑</button>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  list.querySelectorAll("[data-del]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const id = btn.dataset.del;
-      payload.templates = payload.templates.filter(x=>x.id !== id);
-      Object.keys(payload.entries).forEach(pid=>{
-        DAYS.forEach(d=>{
-          if(payload.entries[pid]?.[d] === id) payload.entries[pid][d] = null;
-        });
-      });
-      toast("Template deleted.");
-      renderBuilder();
-    });
-  });
-}
-
-function openAddTemplateModal(){
-  const payload = ensureDraftWeek();
-  if(!payload) return;
-
-  openModal({
-    title: "Add template",
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Template text</label>
-        <input id="tplRaw" type="text" placeholder='Example: XR (SFS) 07:50- 04:20' />
-        <div class="hint">Examples: OFF • TRAINING 08:00- 04:30 • FLOAT (VAL) 08:00- 04:30</div>
-      </div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn" id="tplSave">Add</button>
-    `,
-    onAfter(){
-      $("#tplSave").addEventListener("click", ()=>{
-        const raw = ($("#tplRaw").value || "").trim();
-        if(!raw) return toast("Enter template text.");
-        payload.templates.push(normalizeTemplate({ id: idForRaw(raw), raw }));
-        closeModal();
-        toast("Template added.");
-        renderBuilder();
-      });
-    }
-  });
-}
-
-/* ---------------- Builder grid ---------------- */
+/* ---------------- Builder grid + Assignments ---------------- */
 
 function renderBuilderGrid(payload){
   const table = $("#builderGrid");
@@ -1002,75 +901,151 @@ function renderBuilderGrid(payload){
   thead.innerHTML = `
     <tr>
       <th style="min-width:220px;text-align:left;">Team Member</th>
-      ${DAYS.map(d=>`<th style="min-width:170px;text-align:left;">${d}</th>`).join("")}
+      ${DAYS.map(d=>`<th style="min-width:200px;text-align:left;">${d}</th>`).join("")}
     </tr>
   `;
 
-  tbody.innerHTML = payload.roster
-    .slice()
-    .sort((a,b)=>a.name.localeCompare(b.name))
-    .map(r=>{
-      const e = payload.entries?.[r.id] || {};
-      return `
-        <tr>
-          <td class="nameCell">
-            ${escapeHtml(r.name)} <span class="roleTag">${r.role}</span>
-          </td>
-          ${DAYS.map(d=>{
-            const tid = e[d];
-            const txt = tid ? templateTextById(payload, tid) : "";
-            return `
-              <td>
-                <button class="cellBtn" data-pid="${r.id}" data-day="${d}">
-                  ${escapeHtml(txt || "—")}
-                </button>
-              </td>
-            `;
-          }).join("")}
-        </tr>
-      `;
-    }).join("");
+  const sortedRoster = payload.roster.slice().sort((a,b)=>a.name.localeCompare(b.name));
+
+  tbody.innerHTML = sortedRoster.map(r=>{
+    const e = payload.entries?.[r.id] || {};
+    return `
+      <tr>
+        <td class="nameCell">
+          ${escapeHtml(r.name)} <span class="roleTag">${r.role}</span>
+        </td>
+        ${DAYS.map(d=>{
+          const tid = e[d];
+          const txt = tid ? templateTextById(payload, tid) : "";
+          return `
+            <td>
+              <button class="cellBtn" data-pid="${r.id}" data-day="${d}">
+                ${escapeHtml(txt || "— Click to assign —")}
+              </button>
+            </td>
+          `;
+        }).join("")}
+      </tr>
+    `;
+  }).join("");
 
   tbody.querySelectorAll(".cellBtn").forEach(btn=>{
     btn.addEventListener("click", ()=>{
-      openCellPicker(payload, btn.dataset.pid, btn.dataset.day);
+      openAssignmentModal(payload, btn.dataset.pid, btn.dataset.day);
     });
   });
 }
 
-function openCellPicker(payload, personId, day){
-  const person = payload.roster.find(r=>r.id===personId);
-  payload.templates = normalizeTemplates(payload.templates);
+function openAssignmentModal(payload, staffId, day){
+  const staff = payload.roster.find(r=>r.id===staffId);
+  if(!staff) return;
 
-  const currentId = payload.entries?.[personId]?.[day] || "";
+  const role = staff.role || "MA";
+  const meta = (payload.assignmentMeta?.[staffId]?.[day]) || {};
 
-  const options = [
-    `<option value="">— Clear —</option>`,
-    ...payload.templates.map(t=>{
-      const text = t.parsed.type === "OFF"
-        ? "OFF"
-        : `${t.parsed.label}${t.parsed.site ? ` (${t.parsed.site})` : ""} ${t.parsed.start ? `${t.parsed.start}-${t.parsed.end}` : ""}`.trim();
-      return `<option value="${t.id}" ${t.id===currentId?"selected":""}>${escapeHtml(text)}</option>`;
-    })
-  ].join("");
+  const defaultLoc = meta.location || LOCATIONS[0]?.code || "SFS";
+  const defaultProv = meta.providerId || "";
+  const defaultStart = meta.start || "";
+  const defaultEnd = meta.end || "";
+
+  const isMA = role === "MA";
+  const provDisabled = !isMA && (payload.providers||[]).length === 0;
 
   openModal({
-    title: `Assign: ${person?.name || "Staff"} • ${day}`,
+    title: `${staff.name} • ${day} • ${role}`,
     body: `
-      <div class="field" style="min-width:100%">
-        <label>Template</label>
-        <select id="cellPick" style="height:46px">${options}</select>
+      <div class="row" style="padding:0; margin:0; gap:12px">
+        <div class="field grow" style="min-width:240px">
+          <label>Location</label>
+          <select id="asLoc">
+            ${locationOptionsHTML(defaultLoc)}
+          </select>
+        </div>
+
+        <div class="field grow" style="min-width:240px">
+          <label>Provider ${isMA ? "(required)" : "(optional)"}</label>
+          <select id="asProv" ${(!isMA && provDisabled) ? "disabled" : ""}>
+            ${providerOptionsHTML(payload, defaultProv)}
+          </select>
+          ${(!isMA && (payload.providers||[]).length === 0) ? `<div class="hint">No providers loaded yet.</div>` : ``}
+        </div>
+      </div>
+
+      <div class="row" style="padding:0; margin-top:12px; gap:12px">
+        <div class="field" style="min-width:180px">
+          <label>Start time</label>
+          <input id="asStart" type="time" value="${escapeHtml(defaultStart)}" />
+        </div>
+        <div class="field" style="min-width:180px">
+          <label>End time</label>
+          <input id="asEnd" type="time" value="${escapeHtml(defaultEnd)}" />
+        </div>
+      </div>
+
+      <div class="hint" style="margin-top:10px">
+        This will write the assignment into the weekly grid automatically.
       </div>
     `,
     foot: `
       <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn" id="cellSave">Save</button>
+      <button class="btn btnGhost" id="asClear">Clear</button>
+      <button class="btn" id="asSave">Save</button>
     `,
     onAfter(){
-      $("#cellSave").addEventListener("click", ()=>{
-        const val = $("#cellPick").value || null;
-        if(!payload.entries[personId]) payload.entries[personId] = blankWeekEntries();
-        payload.entries[personId][day] = val;
+      $("#asClear").addEventListener("click", ()=>{
+        if(!payload.entries[staffId]) payload.entries[staffId] = blankWeekEntries();
+        payload.entries[staffId][day] = null;
+
+        if(!payload.assignmentMeta) payload.assignmentMeta = {};
+        payload.assignmentMeta[staffId] = payload.assignmentMeta[staffId] || {};
+        delete payload.assignmentMeta[staffId][day];
+
+        closeModal();
+        renderBuilderGrid(payload);
+      });
+
+      $("#asSave").addEventListener("click", ()=>{
+        const location = ($("#asLoc").value||"").trim();
+        const providerId = ($("#asProv").value||"").trim();
+        const start = ($("#asStart").value||"").trim();
+        const end = ($("#asEnd").value||"").trim();
+
+        if(!location) return toast("Location is required.");
+        if(!start || !end) return toast("Start and End time are required.");
+
+        if(isMA && !providerId){
+          return toast("Provider is required for MA.");
+        }
+
+        const locObj = LOCATIONS.find(l=>l.code===location);
+        const locLabel = locObj ? locObj.code : location;
+
+        const providerName = providerId ? (payload.providers||[]).find(p=>p.id===providerId)?.name : "";
+        const display = buildAssignmentText({
+          role,
+          locationCode: locLabel,
+          providerName: providerName || "",
+          start,
+          end
+        });
+
+        // Create/ensure template based on this display text
+        const tid = ensureTemplate(payload, display);
+
+        if(!payload.entries[staffId]) payload.entries[staffId] = blankWeekEntries();
+        payload.entries[staffId][day] = tid;
+
+        // Store metadata
+        if(!payload.assignmentMeta) payload.assignmentMeta = {};
+        payload.assignmentMeta[staffId] = payload.assignmentMeta[staffId] || {};
+        payload.assignmentMeta[staffId][day] = {
+          role,
+          location: locLabel,
+          providerId: providerId || null,
+          start,
+          end
+        };
+
         closeModal();
         renderBuilderGrid(payload);
       });
@@ -1078,15 +1053,38 @@ function openCellPicker(payload, personId, day){
   });
 }
 
+function buildAssignmentText({ role, locationCode, providerName, start, end }){
+  const time = `${start}- ${end}`;
+  if(role === "MA"){
+    // MA: MA (SFS) Dr. Pelton 08:00- 16:30
+    return `MA (${locationCode}) ${providerName} ${time}`.trim();
+  }
+  // XR: XR (SFS) 07:50- 16:20  OR XR (SFS) Dr. X 07:50- 16:20
+  const prov = providerName ? `${providerName} ` : "";
+  return `XR (${locationCode}) ${prov}${time}`.trim();
+}
+
+function ensureTemplate(payload, raw){
+  payload.templates = payload.templates || [];
+  const id = idForRaw(raw);
+
+  if(!payload.templates.some(t=>t.id===id)){
+    payload.templates.push({ id, raw, parsed: parseCell(raw) });
+  }
+  return id;
+}
+
 /* ---------------- Validation ---------------- */
 
 function validate(payload){
   const issues = [];
 
+  // emails required for My Schedule
   payload.roster.forEach(r=>{
     if(!r.email) issues.push(`${r.name} missing email`);
   });
 
+  // must have 1 assignment per day (non-null)
   payload.roster.forEach(r=>{
     const e = payload.entries?.[r.id] || {};
     DAYS.forEach(d=>{
@@ -1096,6 +1094,22 @@ function validate(payload){
       }
     });
   });
+
+  // MA provider required (if assignmentMeta is present, enforce)
+  if(payload.assignmentMeta){
+    payload.roster.forEach(r=>{
+      const role = r.role || "MA";
+      if(role !== "MA") return;
+      const metaByDay = payload.assignmentMeta[r.id] || {};
+      DAYS.forEach(d=>{
+        const meta = metaByDay[d];
+        if(!meta) return;
+        if(!meta.providerId){
+          issues.push(`${r.name} missing Provider on ${d}`);
+        }
+      });
+    });
+  }
 
   return issues;
 }
@@ -1143,7 +1157,6 @@ function parseScheduleCSV(text){
   };
   if(Object.values(dayIdx).some(i=>i<0)) throw new Error("Missing weekday headers.");
 
-  // date above header like "03/02/2026- 03/06/2026"
   let weekOf = null;
   for(let i=headerIdx-1; i>=0; i--){
     const s = (rows[i][0]||"").trim();
@@ -1178,12 +1191,6 @@ function parseScheduleCSV(text){
     DAYS.forEach(d=>{
       const raw = (rows[i][dayIdx[d]]||"").trim();
       if(!raw) { entries[id][d] = null; return; }
-
-      if(raw.toUpperCase() === "OFF"){
-        templateRawSet.add("OFF");
-        entries[id][d] = idForRaw("OFF");
-        return;
-      }
       templateRawSet.add(raw);
       entries[id][d] = idForRaw(raw);
     });
@@ -1191,61 +1198,36 @@ function parseScheduleCSV(text){
 
   const templates = Array.from(templateRawSet)
     .filter(Boolean)
-    .map(raw => normalizeTemplate({ id: idForRaw(raw), raw }));
+    .map(raw => ({ id: idForRaw(raw), raw, parsed: parseCell(raw) }));
 
-  defaultTemplates().forEach(t=>{
-    if(!templates.some(x=>x.id===t.id)) templates.push(normalizeTemplate(t));
-  });
-
-  return { weekOf, roster, templates, entries, providers: [] };
+  return { weekOf, roster, templates, entries, providers: [], assignmentMeta: {} };
 }
 
-/* ---------------- Template parsing ---------------- */
+/* ---------------- Template display ---------------- */
 
 function parseCell(raw){
   const s = (raw||"").trim();
   if(!s) return { type:"EMPTY", label:"", site:"", start:"", end:"" };
   if(s.toUpperCase() === "OFF") return { type:"OFF", label:"OFF", site:"", start:"", end:"" };
 
-  let label = s;
-  let site = "";
+  // Try to parse: ROLE (LOC) Provider? HH:MM- HH:MM
+  const locMatch = s.match(/\(([A-Z]{2,4})\)/);
+  const site = locMatch ? locMatch[1].trim() : "";
 
-  const siteMatch = s.match(/\(([^\)]+)\)/);
-  if(siteMatch) site = siteMatch[1].trim();
+  const timeMatch = s.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+  const start = timeMatch ? timeMatch[1] : "";
+  const end = timeMatch ? timeMatch[2] : "";
 
-  const timeMatch = s.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})(?:\s*(AM|PM))?/i);
-  let start = "", end = "";
-  if(timeMatch){
-    start = (timeMatch[1]||"").trim();
-    end = (timeMatch[2]||"").trim();
-  }
+  const upper = s.toUpperCase();
+  const type = upper.startsWith("MA ") ? "MA" : upper.startsWith("XR ") ? "XR" : "ASSIGN";
 
-  if(siteMatch){
-    label = s.slice(0, siteMatch.index).trim();
-  }else if(timeMatch){
-    label = s.slice(0, timeMatch.index).trim();
-  }
-  if(!label && site) label = site;
-
-  const upper = label.toUpperCase();
-  const type =
-    upper === "TRAINING" ? "TRAINING" :
-    upper.startsWith("FLOAT") ? "FLOAT" :
-    upper === "XR" ? "XR" :
-    "ASSIGN";
-
-  return { type, label, site, start, end };
+  return { type, label: s, site, start, end };
 }
 
 function templateTextById(sched, id){
   const templates = (sched.templates || []);
   const t = templates.find(x=>x.id===id);
-  if(!t) return "";
-  const p = t.parsed || parseCell(t.raw);
-  if(p.type === "OFF") return "OFF";
-  const sitePart = p.site ? ` (${p.site})` : "";
-  const timePart = (p.start && p.end) ? ` ${p.start}- ${p.end}` : "";
-  return `${p.label}${sitePart}${timePart}`.trim();
+  return t ? (t.raw || "") : "";
 }
 
 /* ---------------- Helpers ---------------- */
