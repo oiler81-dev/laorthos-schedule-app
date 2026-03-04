@@ -174,9 +174,9 @@ function wireButtons(){
   $("#btnLogin").addEventListener("click", login);
   $("#btnLogout").addEventListener("click", logout);
 
-  // Import schedule CSV
-  $("#btnImportCSV").addEventListener("click", ()=> $("#csvFile").click());
-  $("#csvFile").addEventListener("change", async (e)=>{
+  // Import Schedule CSV
+  $("#btnImportScheduleCSV").addEventListener("click", ()=> $("#scheduleFile").click());
+  $("#scheduleFile").addEventListener("change", async (e)=>{
     const f = e.target.files?.[0];
     if(!f) return;
     const text = await f.text();
@@ -194,12 +194,107 @@ function wireButtons(){
       setAllWeekPickers(parsed.weekOf);
 
       toast("Schedule CSV imported into Draft.");
-      $("#csvFile").value = "";
+      $("#scheduleFile").value = "";
       renderAll();
     }catch(err){
       console.error(err);
-      toast("CSV import failed. Make sure it’s the schedule export.");
+      toast("Schedule import failed. Make sure it’s the schedule export.");
     }
+  });
+
+  // Import Staff CSV (defaults role to MA)
+  $("#btnImportStaffCSV").addEventListener("click", ()=>{
+    if(!state.auth.editor) return toast("Not authorized.");
+    const payload = ensureDraftWeek();
+    if(!payload) return;
+    $("#staffFile").click();
+  });
+
+  $("#staffFile").addEventListener("change", async (e)=>{
+    const f = e.target.files?.[0];
+    if(!f) return;
+    const text = await f.text();
+    try{
+      const payload = ensureDraftWeek();
+      if(!payload) return;
+
+      const imported = parseStaffCSV(text); // defaults role=MA if missing
+      const result = mergeRosterByEmail(payload.roster, imported);
+
+      payload.roster = result.roster;
+      ensureEntriesForRoster(payload);
+
+      toast(`Staff imported: ${result.added} added, ${result.updated} updated.`);
+      $("#staffFile").value = "";
+      renderBuilder();
+    }catch(err){
+      console.error(err);
+      toast("Staff import failed. Check CSV columns (name + email).");
+    }
+  });
+
+  // Add staff manually
+  $("#btnAddStaff").addEventListener("click", ()=>{
+    if(!state.auth.editor) return toast("Not authorized.");
+    const payload = ensureDraftWeek();
+    if(!payload) return;
+
+    openModal({
+      title: "Add Staff",
+      body: `
+        <div class="field" style="min-width:100%">
+          <label>Name</label>
+          <input id="addStaffName" type="text" placeholder="First Last" />
+        </div>
+        <div class="field" style="min-width:100%; margin-top:10px">
+          <label>Email</label>
+          <input id="addStaffEmail" type="email" placeholder="user@laorthos.com" />
+        </div>
+        <div class="field" style="min-width:100%; margin-top:10px">
+          <label>Role</label>
+          <select id="addStaffRole">
+            <option value="MA" selected>MA</option>
+            <option value="XR">XR</option>
+          </select>
+        </div>
+        <div class="hint" style="margin-top:10px">
+          Tip: Use Import Staff CSV for bulk. This is for one-offs.
+        </div>
+      `,
+      foot: `
+        <button class="btn btnGhost" data-close="1">Cancel</button>
+        <button class="btn" id="addStaffSave">Add</button>
+      `,
+      onAfter(){
+        $("#addStaffSave").addEventListener("click", ()=>{
+          const name = ($("#addStaffName").value || "").trim();
+          const email = ($("#addStaffEmail").value || "").trim().toLowerCase();
+          const role = ($("#addStaffRole").value || "MA").trim().toUpperCase();
+
+          if(!name) return toast("Name is required.");
+          if(!email || !email.includes("@")) return toast("Valid email required.");
+
+          const existing = payload.roster.find(r => (r.email || "").toLowerCase() === email);
+          if(existing){
+            existing.name = name;
+            existing.role = (role === "XR") ? "XR" : "MA";
+            toast("Staff updated (email matched).");
+          }else{
+            payload.roster.push({
+              id: staffIdFromEmail(email),
+              name,
+              role: (role === "XR") ? "XR" : "MA",
+              email
+            });
+            toast("Staff added.");
+          }
+
+          ensureEntriesForRoster(payload);
+          closeModal();
+          renderBuilder();
+        });
+      }
+    });
   });
 
   $("#btnLoadDraft").addEventListener("click", async ()=>{
@@ -272,25 +367,7 @@ function wireButtons(){
     openAddTemplateModal();
   });
 
-  $("#btnAutoGuessEmails").addEventListener("click", ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-
-    payload.roster.forEach(r=>{
-      if(r.email) return;
-      const parts = r.name.toLowerCase().split(/\s+/).filter(Boolean);
-      if(parts.length < 2) return;
-      const first = parts[0];
-      const last = parts[parts.length-1];
-      r.email = `${first[0]}${last}@unitymsk.com`;
-    });
-
-    toast("Auto-guess applied. Review and correct.");
-    renderBuilder();
-  });
-
-  // Defaults: roster
+  // Default roster load/save
   $("#btnLoadDefaultRoster").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftWeek();
@@ -299,7 +376,12 @@ function wireButtons(){
     try{
       const roster = await getDefaultRoster();
       if(!roster?.length) return toast("No default roster saved yet.");
-      payload.roster = roster.map(r=>({ id:r.id, name:r.name, role:r.role, email:r.email || "" }));
+      payload.roster = roster.map(r=>({
+        id: r.id || staffIdFromEmail(r.email || r.name || ""),
+        name: r.name,
+        role: (r.role === "XR") ? "XR" : "MA",
+        email: (r.email || "").toLowerCase()
+      }));
       ensureEntriesForRoster(payload);
       toast("Default roster loaded into draft.");
       renderBuilder();
@@ -324,7 +406,7 @@ function wireButtons(){
     }
   });
 
-  // Defaults: providers
+  // Default providers load/save
   $("#btnLoadDefaultProviders").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftWeek();
@@ -365,13 +447,12 @@ function wireButtons(){
     }
   });
 
-  // New blank week (auto loads defaults)
+  // New blank week
   $("#btnNewBlankWeek").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
 
     const week = state.currentWeekOf;
     const base = (state.published && state.published.weekOf === week) ? state.published : null;
-
     state.draft = await createBlankDraftFromDefaults(week, base);
 
     if(!state.weeks.includes(week)){
@@ -397,11 +478,12 @@ function wireButtons(){
     state.draft = deepClone(prevPublished);
     state.draft.weekOf = week;
 
-    // ensure required keys
     state.draft.locations ||= LOCATIONS;
     state.draft.providers = normalizeProviders(state.draft.providers || []);
     state.draft.providerAssignments ||= {};
     state.draft.xrLocationAssignments ||= {};
+    state.draft.roster ||= [];
+    ensureEntriesForRoster(state.draft);
 
     if(!state.weeks.includes(week)){
       state.weeks = sortWeeksDesc(Array.from(new Set([week, ...state.weeks])));
@@ -591,8 +673,8 @@ function renderMy(){
 
   if(!me){
     $("#myMatchPill").textContent = "No match";
-    $("#todayCard").innerHTML = `<div class="muted">Your email (${escapeHtml(state.auth.email)}) isn’t mapped to the roster for this week.</div>`;
-    $("#weekCards").innerHTML = `<div class="muted">Ask an editor to add your email in Builder → Roster Emails.</div>`;
+    $("#todayCard").innerHTML = `<div class="muted">Your email (${escapeHtml(state.auth.email)}) isn’t mapped to roster for this week.</div>`;
+    $("#weekCards").innerHTML = `<div class="muted">Ask an editor to add your email in Builder → Roster.</div>`;
     return;
   }
 
@@ -604,7 +686,7 @@ function renderMy(){
 
   $("#todayCard").innerHTML = `
     <div style="font-weight:900; color:var(--navy)">${formatLongDate(new Date())}</div>
-    <div style="margin-top:6px">${todayName ? `<span class="badge">${todayName}</span>` : ""}</div>
+    <div style="margin-top:6px">${todayName ? `<span class="roleTag" style="margin-left:0">${todayName}</span>` : ""}</div>
     <div style="margin-top:10px; font-size:16px; font-weight:900">${escapeHtml(todayVal || "No assignment today")}</div>
   `;
 
@@ -615,7 +697,7 @@ function renderMy(){
       <div class="dayCard">
         <div>
           <div class="dayName">${d}</div>
-          <div class="badge">${me.role}</div>
+          <div class="roleTag" style="margin-left:0">${me.role}</div>
         </div>
         <div class="dayValue">${escapeHtml(txt)}</div>
       </div>
@@ -692,14 +774,14 @@ function renderBuilder(){
     return;
   }
 
-  renderRosterEmails(payload);
+  renderRoster(payload);
   renderTemplateList(payload);
   renderBuilderGrid(payload);
   renderProviderBuilder(payload);
 }
 
 function renderEmptyBuilder(){
-  $("#rosterEmailList").innerHTML = `<div class="muted">Click “New Blank Week”, import schedule CSV, or load a draft.</div>`;
+  $("#rosterEmailList").innerHTML = `<div class="muted">Click New Blank Week, import schedule CSV, or load a draft.</div>`;
   $("#templateList").innerHTML = `<div class="muted">—</div>`;
   $("#builderGrid").querySelector("thead").innerHTML = "";
   $("#builderGrid").querySelector("tbody").innerHTML = `<tr><td class="muted" style="padding:14px">—</td></tr>`;
@@ -720,13 +802,276 @@ function ensureDraftWeek(showToastOnFail=true){
   state.draft.entries ||= {};
   state.draft.roster ||= [];
 
-  // Provider builder state
   state.draft.locations ||= LOCATIONS;
   state.draft.providers ||= [];
   state.draft.providerAssignments ||= {};
   state.draft.xrLocationAssignments ||= {};
 
   return state.draft;
+}
+
+/* ---------------- Roster UI ---------------- */
+
+function renderRoster(payload){
+  const wrap = $("#rosterEmailList");
+  if(!payload.roster.length){
+    wrap.innerHTML = `<div class="muted">No roster yet. Import Staff CSV or Load Default Roster.</div>`;
+    return;
+  }
+
+  payload.roster = payload.roster
+    .map(r => ({
+      id: r.id || staffIdFromEmail(r.email || r.name || ""),
+      name: (r.name || "").trim(),
+      role: (r.role === "XR") ? "XR" : "MA",
+      email: (r.email || "").trim().toLowerCase()
+    }))
+    .filter(r => r.name || r.email)
+    .sort((a,b)=> (a.name || a.email).localeCompare(b.name || b.email));
+
+  wrap.innerHTML = payload.roster.map(r => `
+    <div class="templateItem">
+      <div class="templateTop">
+        <div>
+          <div class="templateName">${escapeHtml(r.name || "(No name)")} <span class="roleTag">${r.role}</span></div>
+          <div class="templateMeta">${escapeHtml(r.id)}</div>
+        </div>
+        <div>
+          <button class="iconBtn" title="Delete" data-staff-del="${r.id}">🗑</button>
+        </div>
+      </div>
+
+      <div style="margin-top:10px" class="field">
+        <label>Name</label>
+        <input data-staff-name="${r.id}" type="text" value="${escapeHtml(r.name || "")}">
+      </div>
+
+      <div style="margin-top:10px" class="field">
+        <label>Email</label>
+        <input data-staff-email="${r.id}" type="email" placeholder="user@laorthos.com" value="${escapeHtml(r.email || "")}">
+      </div>
+
+      <div style="margin-top:10px" class="field">
+        <label>Role</label>
+        <select data-staff-role="${r.id}">
+          <option value="MA" ${r.role==="MA"?"selected":""}>MA</option>
+          <option value="XR" ${r.role==="XR"?"selected":""}>XR</option>
+        </select>
+      </div>
+    </div>
+  `).join("");
+
+  wrap.querySelectorAll("input[data-staff-name]").forEach(inp=>{
+    inp.addEventListener("input", ()=>{
+      const id = inp.dataset.staffName;
+      const person = payload.roster.find(x => x.id === id);
+      if(person) person.name = (inp.value || "").trim();
+      renderProviderBuilder(payload);
+      renderBuilderGrid(payload);
+    });
+  });
+
+  wrap.querySelectorAll("input[data-staff-email]").forEach(inp=>{
+    inp.addEventListener("input", ()=>{
+      const id = inp.dataset.staffEmail;
+      const person = payload.roster.find(x => x.id === id);
+      if(person) person.email = (inp.value || "").trim().toLowerCase();
+    });
+  });
+
+  wrap.querySelectorAll("select[data-staff-role]").forEach(sel=>{
+    sel.addEventListener("change", ()=>{
+      const id = sel.dataset.staffRole;
+      const person = payload.roster.find(x => x.id === id);
+      if(person) person.role = (sel.value === "XR") ? "XR" : "MA";
+      renderProviderBuilder(payload);
+      renderBuilderGrid(payload);
+    });
+  });
+
+  wrap.querySelectorAll("[data-staff-del]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const id = btn.dataset.staffDel;
+      payload.roster = payload.roster.filter(x=>x.id!==id);
+      delete payload.entries[id];
+      toast("Staff removed.");
+      ensureEntriesForRoster(payload);
+      renderBuilder();
+    });
+  });
+}
+
+function ensureEntriesForRoster(payload){
+  payload.entries ||= {};
+  payload.roster.forEach(r=>{
+    if(!payload.entries[r.id]) payload.entries[r.id] = {};
+    DAYS.forEach(d=>{
+      if(payload.entries[r.id][d] === undefined) payload.entries[r.id][d] = null;
+    });
+  });
+}
+
+/* ---------------- Templates + Weekly Grid ---------------- */
+
+function renderTemplateList(payload){
+  const list = $("#templateList");
+  payload.templates = normalizeTemplates(payload.templates);
+
+  list.innerHTML = payload.templates.map(t=>{
+    const p = t.parsed;
+    const meta = p.type === "OFF"
+      ? "OFF"
+      : `${(p.site ? p.site : "—")} • ${(p.start||"")}–${(p.end||"")}`;
+
+    return `
+      <div class="templateItem">
+        <div class="templateTop">
+          <div>
+            <div class="templateName">${escapeHtml(p.label || t.raw)}</div>
+            <div class="templateMeta">${escapeHtml(meta)}</div>
+          </div>
+          <div>
+            <button class="iconBtn" title="Delete" data-del="${t.id}">🗑</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  list.querySelectorAll("[data-del]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const payload2 = ensureDraftWeek();
+      if(!payload2) return;
+      const id = btn.dataset.del;
+      payload2.templates = payload2.templates.filter(x=>x.id !== id);
+      Object.keys(payload2.entries).forEach(pid=>{
+        DAYS.forEach(d=>{
+          if(payload2.entries[pid]?.[d] === id) payload2.entries[pid][d] = null;
+        });
+      });
+      toast("Template deleted.");
+      renderBuilder();
+    });
+  });
+}
+
+function renderBuilderGrid(payload){
+  const table = $("#builderGrid");
+  const thead = table.querySelector("thead");
+  const tbody = table.querySelector("tbody");
+
+  if(!payload.roster.length){
+    thead.innerHTML = "";
+    tbody.innerHTML = `<tr><td class="muted" style="padding:14px">No roster loaded.</td></tr>`;
+    return;
+  }
+
+  ensureEntriesForRoster(payload);
+
+  thead.innerHTML = `
+    <tr>
+      <th style="min-width:240px;text-align:left;">Team Member</th>
+      ${DAYS.map(d=>`<th style="min-width:210px;text-align:left;">${d}</th>`).join("")}
+    </tr>
+  `;
+
+  tbody.innerHTML = payload.roster.map(r=>{
+    const e = payload.entries?.[r.id] || {};
+    return `
+      <tr>
+        <td class="nameCell">
+          ${escapeHtml(r.name || r.email || "Staff")} <span class="roleTag">${r.role}</span>
+        </td>
+        ${DAYS.map(d=>{
+          const tid = e[d];
+          const txt = tid ? templateTextById(payload, tid) : "";
+          return `
+            <td>
+              <button class="cellBtn" data-pid="${r.id}" data-day="${d}">
+                ${escapeHtml(txt || "—")}
+              </button>
+            </td>
+          `;
+        }).join("")}
+      </tr>
+    `;
+  }).join("");
+
+  tbody.querySelectorAll(".cellBtn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      openCellPicker(payload, btn.dataset.pid, btn.dataset.day);
+    });
+  });
+}
+
+function openCellPicker(payload, personId, day){
+  const person = payload.roster.find(r=>r.id===personId);
+  payload.templates = normalizeTemplates(payload.templates);
+
+  const currentId = payload.entries?.[personId]?.[day] || "";
+
+  const options = [
+    `<option value="">— Clear —</option>`,
+    ...payload.templates.map(t=>{
+      const text = t.parsed.type === "OFF"
+        ? "OFF"
+        : `${t.parsed.label}${t.parsed.site ? ` (${t.parsed.site})` : ""} ${t.parsed.start ? `${t.parsed.start}-${t.parsed.end}` : ""}`.trim();
+      return `<option value="${t.id}" ${t.id===currentId?"selected":""}>${escapeHtml(text)}</option>`;
+    })
+  ].join("");
+
+  openModal({
+    title: `Assign: ${person?.name || person?.email || "Staff"} • ${day}`,
+    body: `
+      <div class="field" style="min-width:100%">
+        <label>Template</label>
+        <select id="cellPick" style="height:46px">${options}</select>
+      </div>
+    `,
+    foot: `
+      <button class="btn btnGhost" data-close="1">Cancel</button>
+      <button class="btn" id="cellSave">Save</button>
+    `,
+    onAfter(){
+      $("#cellSave").addEventListener("click", ()=>{
+        const val = $("#cellPick").value || null;
+        if(!payload.entries[personId]) payload.entries[personId] = {};
+        payload.entries[personId][day] = val;
+        closeModal();
+        renderBuilderGrid(payload);
+      });
+    }
+  });
+}
+
+function openAddTemplateModal(){
+  const payload = ensureDraftWeek();
+  if(!payload) return;
+
+  openModal({
+    title: "Add template",
+    body: `
+      <div class="field" style="min-width:100%">
+        <label>Template text</label>
+        <input id="tplRaw" type="text" placeholder='Example: XR (SFS) 07:50- 04:20' />
+        <div class="hint">Examples: OFF, TRAINING 08:00- 04:30, FLOAT (Val) 08:00- 04:30</div>
+      </div>
+    `,
+    foot: `
+      <button class="btn btnGhost" data-close="1">Cancel</button>
+      <button class="btn" id="tplSave">Add</button>
+    `,
+    onAfter(){
+      $("#tplSave").addEventListener("click", ()=>{
+        const raw = ($("#tplRaw").value || "").trim();
+        if(!raw) return toast("Enter template text.");
+        payload.templates.push(normalizeTemplate({ id: idForRaw(raw), raw }));
+        closeModal();
+        toast("Template added.");
+        renderBuilder();
+      });
+    }
+  });
 }
 
 /* ---------------- Provider Builder ---------------- */
@@ -793,6 +1138,15 @@ function renderProviderList(payload){
   });
 }
 
+function rosterOptions(payload, role, allowBlank){
+  const list = (payload.roster || []).filter(r=>r.role===role).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  return (current)=>{
+    const base = allowBlank ? [`<option value="">— None —</option>`] : [];
+    const opts = list.map(r=>`<option value="${r.id}" ${r.id===current?"selected":""}>${escapeHtml(r.name || r.email)}</option>`);
+    return base.concat(opts).join("");
+  };
+}
+
 function renderXRByLocation(payload){
   const wrap = $("#xrByLocation");
   const xrOptions = rosterOptions(payload, "XR", true);
@@ -837,13 +1191,13 @@ function renderBulkControls(payload){
   const maList = (payload.roster || []).filter(r=>r.role==="MA").slice().sort((a,b)=>a.name.localeCompare(b.name));
   maSel.innerHTML = [
     `<option value="">— Select —</option>`,
-    ...maList.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`)
+    ...maList.map(r=>`<option value="${r.id}">${escapeHtml(r.name || r.email)}</option>`)
   ].join("");
 
   const xrList = (payload.roster || []).filter(r=>r.role==="XR").slice().sort((a,b)=>a.name.localeCompare(b.name));
   xrSel.innerHTML = [
     `<option value="">— None —</option>`,
-    ...xrList.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`)
+    ...xrList.map(r=>`<option value="${r.id}">${escapeHtml(r.name || r.email)}</option>`)
   ].join("");
 }
 
@@ -880,25 +1234,13 @@ function renderProviderAssignGrid(payload){
     const a = payload.providerAssignments?.[p.id] || {};
     return `
       <tr>
-        <td>
-          <input type="checkbox" class="provPick" data-pick="${p.id}" />
-        </td>
+        <td><input type="checkbox" class="provPick" data-pick="${p.id}" /></td>
         <td class="nameCell">${escapeHtml(p.name)}</td>
+        <td><select data-assign-loc="${p.id}">${locOptions(a.locationCode || "")}</select></td>
+        <td><select data-assign-ma="${p.id}">${maOptions(a.maStaffId || "")}</select></td>
         <td>
-          <select data-assign-loc="${p.id}">${locOptions(a.locationCode || "")}</select>
-        </td>
-        <td>
-          <select data-assign-ma="${p.id}">
-            ${maOptions(a.maStaffId || "")}
-          </select>
-        </td>
-        <td>
-          <select data-assign-xr="${p.id}">
-            ${xrOptions(a.xrStaffId || "")}
-          </select>
-          <div class="muted small" style="margin-top:6px">
-            Falls back to Location XR if blank.
-          </div>
+          <select data-assign-xr="${p.id}">${xrOptions(a.xrStaffId || "")}</select>
+          <div class="muted small" style="margin-top:6px">Falls back to Location XR if blank.</div>
         </td>
       </tr>
     `;
@@ -932,235 +1274,20 @@ function renderProviderAssignGrid(payload){
   });
 }
 
-function rosterOptions(payload, role, allowBlank){
-  const list = (payload.roster || []).filter(r=>r.role===role).slice().sort((a,b)=>a.name.localeCompare(b.name));
-  return (current)=>{
-    const base = allowBlank ? [`<option value="">— None —</option>`] : [];
-    const opts = list.map(r=>`<option value="${r.id}" ${r.id===current?"selected":""}>${escapeHtml(r.name)}</option>`);
-    return base.concat(opts).join("");
-  };
-}
-
-/* ---------------- Builder subpanels ---------------- */
-
-function ensureEntriesForRoster(payload){
-  payload.entries ||= {};
-  payload.roster.forEach(r=>{
-    if(!payload.entries[r.id]) payload.entries[r.id] = {};
-    DAYS.forEach(d=>{
-      if(payload.entries[r.id][d] === undefined) payload.entries[r.id][d] = null;
-    });
-  });
-}
-
-function renderRosterEmails(payload){
-  const wrap = $("#rosterEmailList");
-  if(!payload.roster.length){
-    wrap.innerHTML = `<div class="muted">No roster loaded. Load/Save default roster or import schedule.</div>`;
-    return;
-  }
-
-  wrap.innerHTML = payload.roster
-    .slice()
-    .sort((a,b)=>a.name.localeCompare(b.name))
-    .map(r => `
-      <div class="templateItem">
-        <div class="templateTop">
-          <div>
-            <div class="templateName">${escapeHtml(r.name)} <span class="roleTag">${r.role}</span></div>
-            <div class="templateMeta">${escapeHtml(r.id)}</div>
-          </div>
-        </div>
-        <div style="margin-top:10px" class="field">
-          <label>Email</label>
-          <input data-email-for="${r.id}" type="email" placeholder="name@domain.com" value="${escapeHtml(r.email || "")}">
-        </div>
-      </div>
-    `).join("");
-
-  wrap.querySelectorAll("input[data-email-for]").forEach(inp => {
-    inp.addEventListener("input", () => {
-      const pid = inp.dataset.emailFor;
-      const val = (inp.value || "").trim();
-      const person = payload.roster.find(x => x.id === pid);
-      if (person) person.email = val;
-    });
-  });
-}
-
-function renderTemplateList(payload){
-  const list = $("#templateList");
-  payload.templates = normalizeTemplates(payload.templates);
-
-  list.innerHTML = payload.templates.map(t=>{
-    const p = t.parsed;
-    const meta = p.type === "OFF"
-      ? "OFF"
-      : `${(p.site ? p.site : "—")} • ${(p.start||"")}–${(p.end||"")}`.replace("–", "–");
-
-    return `
-      <div class="templateItem">
-        <div class="templateTop">
-          <div>
-            <div class="templateName">${escapeHtml(p.label || t.raw)}</div>
-            <div class="templateMeta">${escapeHtml(meta)}</div>
-          </div>
-          <div>
-            <button class="iconBtn" title="Delete" data-del="${t.id}">🗑</button>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  list.querySelectorAll("[data-del]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const id = btn.dataset.del;
-      payload.templates = payload.templates.filter(x=>x.id !== id);
-      Object.keys(payload.entries).forEach(pid=>{
-        DAYS.forEach(d=>{
-          if(payload.entries[pid]?.[d] === id) payload.entries[pid][d] = null;
-        });
-      });
-      toast("Template deleted.");
-      renderBuilder();
-    });
-  });
-}
-
-function renderBuilderGrid(payload){
-  const table = $("#builderGrid");
-  const thead = table.querySelector("thead");
-  const tbody = table.querySelector("tbody");
-
-  if(!payload.roster.length){
-    thead.innerHTML = "";
-    tbody.innerHTML = `<tr><td class="muted" style="padding:14px">No roster loaded.</td></tr>`;
-    return;
-  }
-
-  ensureEntriesForRoster(payload);
-
-  thead.innerHTML = `
-    <tr>
-      <th style="min-width:240px;text-align:left;">Team Member</th>
-      ${DAYS.map(d=>`<th style="min-width:210px;text-align:left;">${d}</th>`).join("")}
-    </tr>
-  `;
-
-  tbody.innerHTML = payload.roster.map(r=>{
-    const e = payload.entries?.[r.id] || {};
-    return `
-      <tr>
-        <td class="nameCell">
-          ${escapeHtml(r.name)} <span class="roleTag">${r.role}</span>
-        </td>
-        ${DAYS.map(d=>{
-          const tid = e[d];
-          const txt = tid ? templateTextById(payload, tid) : "";
-          return `
-            <td>
-              <button class="cellBtn" data-pid="${r.id}" data-day="${d}">
-                ${escapeHtml(txt || "—")}
-              </button>
-            </td>
-          `;
-        }).join("")}
-      </tr>
-    `;
-  }).join("");
-
-  tbody.querySelectorAll(".cellBtn").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      openCellPicker(payload, btn.dataset.pid, btn.dataset.day);
-    });
-  });
-}
-
-function openCellPicker(payload, personId, day){
-  const person = payload.roster.find(r=>r.id===personId);
-  payload.templates = normalizeTemplates(payload.templates);
-
-  const currentId = payload.entries?.[personId]?.[day] || "";
-
-  const options = [
-    `<option value="">— Clear —</option>`,
-    ...payload.templates.map(t=>{
-      const text = t.parsed.type === "OFF"
-        ? "OFF"
-        : `${t.parsed.label}${t.parsed.site ? ` (${t.parsed.site})` : ""} ${t.parsed.start ? `${t.parsed.start}-${t.parsed.end}` : ""}`.trim();
-      return `<option value="${t.id}" ${t.id===currentId?"selected":""}>${escapeHtml(text)}</option>`;
-    })
-  ].join("");
-
-  openModal({
-    title: `Assign: ${person?.name || "Staff"} • ${day}`,
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Template</label>
-        <select id="cellPick" style="height:46px">${options}</select>
-      </div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn" id="cellSave">Save</button>
-    `,
-    onAfter(){
-      $("#cellSave").addEventListener("click", ()=>{
-        const val = $("#cellPick").value || null;
-        if(!payload.entries[personId]) payload.entries[personId] = {};
-        payload.entries[personId][day] = val;
-        closeModal();
-        renderBuilderGrid(payload);
-      });
-    }
-  });
-}
-
-function openAddTemplateModal(){
-  const payload = ensureDraftWeek();
-  if(!payload) return;
-
-  openModal({
-    title: "Add template",
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Template text</label>
-        <input id="tplRaw" type="text" placeholder='Example: XR (SFS) 07:50- 04:20' />
-        <div class="hint">You can add OFF, TRAINING 08:00- 04:30, FLOAT (Val) 08:00- 04:30</div>
-      </div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn" id="tplSave">Add</button>
-    `,
-    onAfter(){
-      $("#tplSave").addEventListener("click", ()=>{
-        const raw = ($("#tplRaw").value || "").trim();
-        if(!raw) return toast("Enter template text.");
-        payload.templates.push(normalizeTemplate({ id: idForRaw(raw), raw }));
-        closeModal();
-        toast("Template added.");
-        renderBuilder();
-      });
-    }
-  });
-}
-
 /* ---------------- Validation ---------------- */
 
 function validate(payload){
   const issues = [];
 
   payload.roster.forEach(r=>{
-    if(!r.email) issues.push(`${r.name} missing email`);
+    if(!r.email) issues.push(`${r.name || r.id} missing email`);
   });
 
   payload.roster.forEach(r=>{
     const e = payload.entries?.[r.id] || {};
     DAYS.forEach(d=>{
       const v = e[d];
-      if(v === undefined || v === null || v === "") issues.push(`${r.name} missing ${d}`);
+      if(v === undefined || v === null || v === "") issues.push(`${r.name || r.email || r.id} missing ${d}`);
     });
   });
 
@@ -1203,7 +1330,7 @@ function exportPublishedToCSV(){
   toast("CSV exported.");
 }
 
-/* ---------------- CSV Import parsing ---------------- */
+/* ---------------- CSV parsing ---------------- */
 
 function parseScheduleCSV(text){
   const rows = csvToRows(text);
@@ -1287,20 +1414,122 @@ function parseScheduleCSV(text){
   };
 }
 
-/* ---------------- Create Blank Draft from defaults ---------------- */
+function parseStaffCSV(text){
+  const rows = csvToRows(text).filter(r => r.some(c => (c||"").trim() !== ""));
+  if(rows.length < 2) throw new Error("Empty CSV");
+
+  const header = rows[0].map(h => normalizeHeader(h));
+  const idx = (name) => header.findIndex(h => h === name);
+
+  const iDisplay = idx("display_name");
+  const iFirst = idx("first_name");
+  const iLast = idx("last_name");
+  const iUPN = idx("user_principal_name");
+  const iEmail = idx("email");
+  const iRole = idx("role");
+
+  const out = [];
+
+  for(let r=1; r<rows.length; r++){
+    const row = rows[r];
+
+    const email = ((pick(row, iUPN) || pick(row, iEmail)) || "").trim().toLowerCase();
+    if(!email || !email.includes("@")) continue;
+
+    let name = (pick(row, iDisplay) || "").trim();
+    if(!name){
+      const fn = (pick(row, iFirst) || "").trim();
+      const ln = (pick(row, iLast) || "").trim();
+      name = `${fn} ${ln}`.trim();
+    }
+    if(!name) name = email.split("@")[0];
+
+    let role = (pick(row, iRole) || "").trim().toUpperCase();
+    // Option #2: default to MA if missing/invalid
+    role = (role === "XR" || role === "XRT") ? "XR" : "MA";
+
+    out.push({
+      id: staffIdFromEmail(email),
+      name,
+      role,
+      email
+    });
+  }
+
+  // Dedup by email (keep last occurrence)
+  const map = new Map();
+  out.forEach(p => map.set(p.email, p));
+  return Array.from(map.values()).sort((a,b)=>a.name.localeCompare(b.name));
+}
+
+function mergeRosterByEmail(existingRoster, importedRoster){
+  const existing = (existingRoster || []).map(r=>({
+    id: r.id || staffIdFromEmail(r.email || r.name || ""),
+    name: (r.name || "").trim(),
+    role: (r.role === "XR") ? "XR" : "MA",
+    email: (r.email || "").trim().toLowerCase()
+  }));
+
+  const byEmail = new Map(existing.filter(x=>x.email).map(x=>[x.email, x]));
+  let added = 0, updated = 0;
+
+  importedRoster.forEach(p=>{
+    const email = (p.email || "").toLowerCase();
+    if(!email) return;
+
+    const cur = byEmail.get(email);
+    if(cur){
+      const beforeName = cur.name;
+      const beforeRole = cur.role;
+
+      cur.name = p.name || cur.name;
+      cur.role = (p.role === "XR") ? "XR" : "MA";
+
+      if(cur.name !== beforeName || cur.role !== beforeRole) updated++;
+    }else{
+      existing.push({
+        id: p.id || staffIdFromEmail(email),
+        name: p.name,
+        role: (p.role === "XR") ? "XR" : "MA",
+        email
+      });
+      byEmail.set(email, existing[existing.length-1]);
+      added++;
+    }
+  });
+
+  // Keep any “name-only” people (no email) at the end
+  const withEmail = existing.filter(x=>x.email);
+  const noEmail = existing.filter(x=>!x.email);
+
+  withEmail.sort((a,b)=>a.name.localeCompare(b.name));
+  noEmail.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+
+  return { roster: withEmail.concat(noEmail), added, updated };
+}
+
+/* ---------------- Blank Draft from defaults ---------------- */
 
 async function createBlankDraftFromDefaults(weekOf, seedFromPublished){
   const base = seedFromPublished ? deepClone(seedFromPublished) : null;
 
   let roster = base?.roster?.length ? base.roster.map(r=>({
-    id: r.id, name: r.name, role: r.role, email: r.email || ""
+    id: r.id || staffIdFromEmail(r.email || r.name || ""),
+    name: r.name,
+    role: (r.role === "XR") ? "XR" : "MA",
+    email: (r.email || "").toLowerCase()
   })) : [];
 
   if(!roster.length){
     try{
       const defaultRoster = await getDefaultRoster();
       if(defaultRoster?.length){
-        roster = defaultRoster.map(r=>({ id:r.id, name:r.name, role:r.role, email:r.email || "" }));
+        roster = defaultRoster.map(r=>({
+          id: r.id || staffIdFromEmail(r.email || r.name || ""),
+          name: r.name,
+          role: (r.role === "XR") ? "XR" : "MA",
+          email: (r.email || "").toLowerCase()
+        }));
       }
     }catch(e){
       console.warn("default roster load failed", e);
@@ -1416,6 +1645,7 @@ function csvToRows(text){
   const lines = text.replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n");
   return lines.map(parseCSVLine);
 }
+
 function parseCSVLine(line){
   const out = [];
   let cur = "";
@@ -1437,11 +1667,33 @@ function parseCSVLine(line){
   out.push(cur);
   return out;
 }
+
+function pick(row, idx){
+  if(idx < 0) return "";
+  return row[idx] ?? "";
+}
+
+function normalizeHeader(h){
+  const s = (h || "").toString().trim().toLowerCase();
+  if(!s) return "";
+  const n = s.replace(/\s+/g, " ").replace(/[^a-z0-9 ]/g, "");
+
+  if(n === "display name" || n === "displayname") return "display_name";
+  if(n === "first name" || n === "firstname") return "first_name";
+  if(n === "last name" || n === "lastname") return "last_name";
+  if(n === "user principal name" || n === "userprincipalname" || n === "upn") return "user_principal_name";
+  if(n === "email" || n === "e mail" || n === "email address" || n === "mail") return "email";
+  if(n === "role" || n === "position") return "role";
+
+  return n.replace(/\s/g, "_");
+}
+
 function csvEscape(v){
   const s = (v ?? "").toString();
   if(/[,"\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
   return s;
 }
+
 function toISODate(mmddyyyy){
   const [mm,dd,yyyy] = mmddyyyy.split("/");
   return `${yyyy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`;
@@ -1482,6 +1734,17 @@ function slug(name){
 
 function providerId(name){
   return "p_" + slug(name);
+}
+
+function staffIdFromEmail(emailOrText){
+  const s = (emailOrText || "").toString().trim().toLowerCase();
+  if(!s) return "u_" + Math.random().toString(16).slice(2);
+  let h = 2166136261;
+  for(let i=0;i<s.length;i++){
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return "u_" + (h>>>0).toString(16);
 }
 
 function idForRaw(raw){
