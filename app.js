@@ -2,6 +2,7 @@ const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
 const DEFAULTS_PK = "__defaults__";
 const DEFAULT_ROSTER_RK = "roster";
 const DEFAULT_PROVIDERS_RK = "providers";
+const DEFAULT_PRESETS_RK = "timepresets";
 
 const LOCATIONS = [
   { code:"WIL", name:"Wilshire" },
@@ -12,6 +13,19 @@ const LOCATIONS = [
   { code:"ENC", name:"Encino" },
   { code:"VAL", name:"Valencia" },
   { code:"TO",  name:"Thousand Oaks" },
+];
+
+const DEFAULT_TIME_PRESETS = [
+  { id:"t1", label:"7:50am - 4:20pm", start:"07:50", end:"16:20" },
+  { id:"t2", label:"8:00am - 4:30pm", start:"08:00", end:"16:30" },
+  { id:"t3", label:"8:30am - 5:00pm", start:"08:30", end:"17:00" },
+  { id:"t4", label:"8:00am - 5:00pm", start:"08:00", end:"17:00" },
+];
+
+const XR_ROOMS = [
+  { id:"R1", label:"XR Room 1" },
+  { id:"R2", label:"XR Room 2" },
+  { id:"R3", label:"XR Room 3" },
 ];
 
 const $ = (sel) => document.querySelector(sel);
@@ -25,6 +39,10 @@ const state = {
 
   published: null,
   draft: null,
+
+  // Builder selection
+  activeProviderId: null,
+  providerSearch: "",
 };
 
 init().catch(err => {
@@ -40,9 +58,10 @@ async function init(){
   await loadWeeks();
 
   state.currentWeekOf = state.weeks[0] || mondayOf(new Date());
-  await loadPublished(state.currentWeekOf);
 
+  await loadPublished(state.currentWeekOf);
   renderWeekPickers();
+
   renderAll();
 }
 
@@ -51,7 +70,6 @@ async function init(){
 async function loadAuth(){
   const res = await fetch("./api/me", { cache: "no-store" });
   const data = await res.json();
-
   state.auth.email = data.email;
   state.auth.editor = !!data.editor;
 
@@ -63,7 +81,6 @@ async function loadAuth(){
   $("#btnLogin").style.display = state.auth.email ? "none" : "";
   $("#btnLogout").style.display = state.auth.email ? "" : "none";
 }
-
 function login(){ window.location.href = "/.auth/login/aad"; }
 function logout(){ window.location.href = "/.auth/logout"; }
 
@@ -105,7 +122,13 @@ async function loadDraft(weekOf){
 }
 
 async function loadDefaults(kind){
-  const rk = kind === "roster" ? DEFAULT_ROSTER_RK : DEFAULT_PROVIDERS_RK;
+  const rk =
+    kind === "roster" ? DEFAULT_ROSTER_RK :
+    kind === "providers" ? DEFAULT_PROVIDERS_RK :
+    kind === "timepresets" ? DEFAULT_PRESETS_RK :
+    null;
+  if(!rk) return null;
+
   try{
     const res = await fetch(`./api/schedule?weekOf=${encodeURIComponent(DEFAULTS_PK)}&mode=${encodeURIComponent(rk)}`, { cache: "no-store" });
     if(!res.ok) return null;
@@ -132,7 +155,6 @@ function wireTabs(){
     btn.addEventListener("click", ()=> setView(btn.dataset.view));
   });
 }
-
 function setView(view){
   state.view = view;
   document.querySelectorAll(".tab").forEach(t=>{
@@ -145,6 +167,45 @@ function setView(view){
   });
 }
 
+/* ---------------- Week pickers ---------------- */
+
+function renderWeekPickers(){
+  const weeks = state.weeks.length ? state.weeks : [state.currentWeekOf];
+  const opts = weeks.map(w => `<option value="${w}">${w}</option>`).join("");
+
+  $("#weekPickMy").innerHTML = opts;
+  $("#weekPickEveryone").innerHTML = opts;
+  $("#weekPickBuilder").innerHTML = opts;
+
+  $("#weekPickMy").value = state.currentWeekOf;
+  $("#weekPickEveryone").value = state.currentWeekOf;
+  $("#weekPickBuilder").value = state.currentWeekOf;
+
+  $("#weekPickMy").onchange = async (e)=>{ await changeWeek(e.target.value); };
+  $("#weekPickEveryone").onchange = async (e)=>{ await changeWeek(e.target.value); };
+  $("#weekPickBuilder").onchange = async (e)=>{ await changeWeek(e.target.value); };
+}
+
+function setAllWeekPickers(week){
+  $("#weekPickMy").value = week;
+  $("#weekPickEveryone").value = week;
+  $("#weekPickBuilder").value = week;
+}
+
+async function changeWeek(week){
+  state.currentWeekOf = week;
+  setAllWeekPickers(week);
+  await loadPublished(week);
+
+  // keep draft week aligned if already loaded
+  if(state.draft && state.draft.weekOf !== week){
+    state.draft = null;
+    state.activeProviderId = null;
+  }
+
+  renderAll();
+}
+
 /* ---------------- Buttons ---------------- */
 
 function wireButtons(){
@@ -153,113 +214,6 @@ function wireButtons(){
 
   $("#btnLogin").addEventListener("click", login);
   $("#btnLogout").addEventListener("click", logout);
-
-  // Schedule CSV import
-  $("#btnImportScheduleCSV").addEventListener("click", ()=> $("#scheduleFile").click());
-  $("#scheduleFile").addEventListener("change", async (e)=>{
-    const f = e.target.files?.[0];
-    if(!f) return;
-    const text = await f.text();
-    try{
-      const parsed = parseScheduleCSV(text);
-      state.draft = parsed;
-      state.currentWeekOf = parsed.weekOf;
-
-      if(!state.weeks.includes(parsed.weekOf)){
-        state.weeks.unshift(parsed.weekOf);
-        state.weeks = Array.from(new Set(state.weeks)).sort((a,b)=> a < b ? 1 : -1);
-      }
-
-      renderWeekPickers();
-      setAllWeekPickers(parsed.weekOf);
-
-      toast("Schedule CSV imported into Draft.");
-      $("#scheduleFile").value = "";
-      renderAll();
-    }catch(err){
-      console.error(err);
-      toast("Schedule CSV import failed.");
-    }
-  });
-
-  $("#btnLoadDraft").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    await loadDraft(state.currentWeekOf);
-    toast(state.draft ? "Draft loaded." : "No draft found for this week.");
-    renderAll();
-  });
-
-  $("#btnLoadPublished").addEventListener("click", async ()=>{
-    await loadPublished(state.currentWeekOf);
-    toast(state.published ? "Published loaded." : "No published schedule found.");
-    renderAll();
-  });
-
-  $("#btnSaveDraft").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-
-    try{
-      await saveSchedule("draft", payload);
-      toast("Draft saved.");
-    }catch(e){
-      console.error(e);
-      toast("Draft save failed.");
-    }
-  });
-
-  $("#btnPublish").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-
-    const issues = validate(payload);
-    if(issues.length){
-      openModal({
-        title: `Fix before publish (${issues.length})`,
-        body: `<div class="muted" style="line-height:1.45">${issues.map(x=>`• ${escapeHtml(x)}`).join("<br>")}</div>`,
-        foot: `<button class="btn btnGhost" data-close="1">Close</button>`
-      });
-      return;
-    }
-
-    try{
-      await saveSchedule("published", payload);
-      toast("Published.");
-      await loadPublished(payload.weekOf);
-      renderAll();
-    }catch(e){
-      console.error(e);
-      toast("Publish failed.");
-    }
-  });
-
-  $("#btnValidate").addEventListener("click", ()=>{
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-    const issues = validate(payload);
-    if(!issues.length) return toast("Validation passed.");
-
-    openModal({
-      title: `Validation issues (${issues.length})`,
-      body: `<div class="muted" style="line-height:1.45">${issues.map(x=>`• ${escapeHtml(x)}`).join("<br>")}</div>`,
-      foot: `<button class="btn btnGhost" data-close="1">Close</button>`
-    });
-  });
-
-  $("#btnClearWeek").addEventListener("click", ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
-
-    payload.roster.forEach(r=>{
-      payload.entries[r.id] = blankWeekEntries();
-    });
-    if(payload.assignmentMeta) payload.assignmentMeta = {};
-    toast("Cleared all assignments for this week (Draft).");
-    renderBuilderGrid(payload);
-  });
 
   // Staff import
   $("#btnImportStaffCSV").addEventListener("click", ()=> $("#staffFile").click());
@@ -303,57 +257,7 @@ function wireButtons(){
   $("#btnAddStaff").addEventListener("click", ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftForWeek(state.currentWeekOf);
-
-    openModal({
-      title: "Add Staff",
-      body: `
-        <div class="field" style="min-width:100%">
-          <label>Full name</label>
-          <input id="addStaffName" type="text" placeholder="First Last" />
-        </div>
-        <div class="field" style="min-width:100%; margin-top:10px">
-          <label>Email</label>
-          <input id="addStaffEmail" type="email" placeholder="name@laorthos.com" />
-        </div>
-        <div class="field" style="min-width:100%; margin-top:10px">
-          <label>Role</label>
-          <select id="addStaffRole">
-            <option value="MA">MA</option>
-            <option value="XR">XR</option>
-          </select>
-        </div>
-      `,
-      foot: `
-        <button class="btn btnGhost" data-close="1">Cancel</button>
-        <button class="btn" id="addStaffSave">Add</button>
-      `,
-      onAfter(){
-        $("#addStaffSave").addEventListener("click", ()=>{
-          const name = ($("#addStaffName").value||"").trim();
-          const email = ($("#addStaffEmail").value||"").trim();
-          const role = $("#addStaffRole").value;
-
-          if(!name) return toast("Name required.");
-          const id = slug(name);
-
-          const emailLower = (email||"").toLowerCase();
-          const existing = payload.roster.find(r => (r.email||"").toLowerCase() === emailLower && emailLower);
-          if(existing){
-            toast("That email already exists in roster.");
-            return;
-          }
-
-          const idFinal = payload.roster.some(r=>r.id===id) ? `${id}-${Math.random().toString(16).slice(2,6)}` : id;
-
-          payload.roster.push({ id: idFinal, name, role, email });
-          payload.entries[idFinal] = payload.entries[idFinal] || blankWeekEntries();
-
-          closeModal();
-          toast("Staff added.");
-          renderBuilder();
-        });
-      }
-    });
+    openAddStaffModal(payload);
   });
 
   // Providers import
@@ -366,9 +270,10 @@ function wireButtons(){
       const providers = parseProvidersCSV(text);
       const payload = ensureDraftForWeek(state.currentWeekOf);
       payload.providers = mergeProviders(payload.providers || [], providers);
+      ensureProviderAssignmentsScaffold(payload);
       toast(`Providers imported (${providers.length}).`);
       $("#providersFile").value = "";
-      renderProviders(payload);
+      renderBuilder();
     }catch(err){
       console.error(err);
       toast("Providers import failed.");
@@ -383,8 +288,9 @@ function wireButtons(){
       const providers = parseProvidersCSV(text);
       const payload = ensureDraftForWeek(state.currentWeekOf);
       payload.providers = mergeProviders(payload.providers || [], providers);
+      ensureProviderAssignmentsScaffold(payload);
       toast(`Providers loaded from repo (${providers.length}).`);
-      renderProviders(payload);
+      renderBuilder();
     }catch(e){
       console.error(e);
       toast("Load providers from repo failed. Put file at /data/providers.csv");
@@ -394,151 +300,196 @@ function wireButtons(){
   $("#btnAddProvider").addEventListener("click", ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftForWeek(state.currentWeekOf);
+    openAddProviderModal(payload);
+  });
 
+  // Time preset add
+  $("#btnAddTimePreset").addEventListener("click", ()=>{
+    if(!state.auth.editor) return toast("Not authorized.");
+    const payload = ensureDraftForWeek(state.currentWeekOf);
+    openAddTimePresetModal(payload);
+  });
+
+  // Draft/Published
+  $("#btnLoadDraft").addEventListener("click", async ()=>{
+    if(!state.auth.editor) return toast("Not authorized.");
+    await loadDraft(state.currentWeekOf);
+    if(state.draft){
+      normalizeDraft(state.draft);
+      toast("Draft loaded.");
+    }else{
+      toast("No draft found for this week.");
+    }
+    renderAll();
+  });
+
+  $("#btnLoadPublished").addEventListener("click", async ()=>{
+    await loadPublished(state.currentWeekOf);
+    toast(state.published ? "Published loaded." : "No published schedule found.");
+    renderAll();
+  });
+
+  $("#btnSaveDraft").addEventListener("click", async ()=>{
+    if(!state.auth.editor) return toast("Not authorized.");
+    const payload = ensureDraftForWeek(state.currentWeekOf);
+
+    // generate staff-view from provider-driven before saving
+    rebuildStaffViewFromProviderDriven(payload);
+
+    try{
+      await saveSchedule("draft", payload);
+      toast("Draft saved.");
+    }catch(e){
+      console.error(e);
+      toast("Draft save failed.");
+    }
+  });
+
+  $("#btnPublish").addEventListener("click", async ()=>{
+    if(!state.auth.editor) return toast("Not authorized.");
+    const payload = ensureDraftForWeek(state.currentWeekOf);
+
+    rebuildStaffViewFromProviderDriven(payload);
+
+    const issues = validate(payload);
+    if(issues.length){
+      openModal({
+        title: `Fix before publish (${issues.length})`,
+        body: `<div class="muted" style="line-height:1.45">${issues.map(x=>`• ${escapeHtml(x)}`).join("<br>")}</div>`,
+        foot: `<button class="btn btnGhost" data-close="1">Close</button>`
+      });
+      return;
+    }
+
+    try{
+      await saveSchedule("published", payload);
+      toast("Published.");
+      await loadPublished(payload.weekOf);
+      renderAll();
+    }catch(e){
+      console.error(e);
+      toast("Publish failed.");
+    }
+  });
+
+  $("#btnValidate").addEventListener("click", ()=>{
+    const payload = ensureDraftForWeek(state.currentWeekOf);
+    rebuildStaffViewFromProviderDriven(payload);
+    const issues = validate(payload);
+    if(!issues.length) return toast("Validation passed.");
     openModal({
-      title: "Add Provider",
-      body: `
-        <div class="field" style="min-width:100%">
-          <label>Provider name</label>
-          <input id="addProvName" type="text" placeholder="Dr. Lastname" />
-        </div>
-      `,
-      foot: `
-        <button class="btn btnGhost" data-close="1">Cancel</button>
-        <button class="btn" id="addProvSave">Add</button>
-      `,
-      onAfter(){
-        $("#addProvSave").addEventListener("click", ()=>{
-          const name = ($("#addProvName").value||"").trim();
-          if(!name) return toast("Provider name required.");
-          payload.providers = payload.providers || [];
-          payload.providers = mergeProviders(payload.providers, [{ id: slug(name), name }]);
-          closeModal();
-          toast("Provider added.");
-          renderProviders(payload);
-        });
-      }
+      title: `Validation issues (${issues.length})`,
+      body: `<div class="muted" style="line-height:1.45">${issues.map(x=>`• ${escapeHtml(x)}`).join("<br>")}</div>`,
+      foot: `<button class="btn btnGhost" data-close="1">Close</button>`
     });
   });
 
-  $("#btnAddProviderBulk").addEventListener("click", ()=>{
+  $("#btnClearWeek").addEventListener("click", ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftForWeek(state.currentWeekOf);
-    const raw = ($("#providerBulk").value||"").trim();
-    if(!raw) return toast("Paste provider names first.");
-    const lines = raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-    const providers = lines.map(name => ({ id: slug(name), name }));
-    payload.providers = mergeProviders(payload.providers || [], providers);
-    $("#providerBulk").value = "";
-    toast(`Added ${providers.length} provider(s).`);
-    renderProviders(payload);
-  });
 
-  // Defaults roster/providers
-  $("#btnSaveDefaultRoster").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
+    payload.providerAssignments = {};
+    payload.floatAssignments = defaultFloatAssignments();
+    payload.providerDone = {};
+    ensureProviderAssignmentsScaffold(payload);
 
-    const rosterOnly = { weekOf: DEFAULTS_PK, roster: payload.roster };
-    try{ await saveSchedule(DEFAULT_ROSTER_RK, rosterOnly); toast("Default roster saved."); }
-    catch(e){ console.error(e); toast("Default roster save failed."); }
-  });
-
-  $("#btnLoadDefaultRoster").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const data = await loadDefaults("roster");
-    if(!data?.roster?.length) return toast("No default roster found.");
-    const payload = ensureDraftForWeek(state.currentWeekOf);
-    const defaults = data.roster.map(r => ({
-      id: r.id || slug(r.name),
-      name: r.name,
-      role: r.role || "MA",
-      email: r.email || ""
-    }));
-    mergeRoster(payload, defaults);
-    toast("Default roster loaded into Draft.");
+    toast("Cleared Draft Week.");
     renderBuilder();
   });
 
-  $("#btnSaveDefaultProviders").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
+  // Provider done toggles
+  $("#btnProviderMarkDone").addEventListener("click", ()=>{
     const payload = ensureDraftForWeek(state.currentWeekOf);
-    const providers = payload.providers || [];
-    const p = { weekOf: DEFAULTS_PK, providers };
-    try{ await saveSchedule(DEFAULT_PROVIDERS_RK, p); toast("Default providers saved."); }
-    catch(e){ console.error(e); toast("Default providers save failed."); }
+    if(!state.activeProviderId) return toast("Select a provider.");
+    payload.providerDone[state.activeProviderId] = true;
+    renderProviderList(payload);
+    toast("Marked done.");
   });
-
-  $("#btnLoadDefaultProviders").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const data = await loadDefaults("providers");
-    if(!data?.providers?.length) return toast("No default providers found.");
+  $("#btnProviderMarkNotDone").addEventListener("click", ()=>{
     const payload = ensureDraftForWeek(state.currentWeekOf);
-    payload.providers = mergeProviders(payload.providers || [], data.providers);
-    toast("Default providers loaded into Draft.");
-    renderProviders(payload);
+    if(!state.activeProviderId) return toast("Select a provider.");
+    payload.providerDone[state.activeProviderId] = false;
+    renderProviderList(payload);
+    toast("Marked not done.");
   });
 
   // Everyone filters
   $("#roleFilter").addEventListener("change", renderEveryone);
   $("#searchFilter").addEventListener("input", renderEveryone);
 
+  // Provider search
+  $("#providerSearch").addEventListener("input", (e)=>{
+    state.providerSearch = (e.target.value || "").trim().toLowerCase();
+    const payload = ensureDraftForWeek(state.currentWeekOf);
+    renderProviderList(payload);
+  });
+
   // Modal close
   $("#modal").addEventListener("click", (e)=>{
     if(e.target?.dataset?.close) closeModal();
   });
+}
 
-  // Auto-guess emails still works
-  $("#btnAutoGuessEmails").addEventListener("click", ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftWeek();
-    if(!payload) return;
+/* ---------------- Data model normalization ---------------- */
 
-    payload.roster.forEach(r=>{
-      if(r.email) return;
-      const parts = r.name.toLowerCase().split(/\s+/).filter(Boolean);
-      if(parts.length < 2) return;
-      const first = parts[0];
-      const last = parts[parts.length-1];
-      r.email = `${first[0]}${last}@laorthos.com`;
-    });
+function normalizeDraft(d){
+  d.weekOf = d.weekOf || state.currentWeekOf;
+  d.roster = d.roster || [];
+  d.providers = d.providers || [];
+  d.templates = d.templates || [];
+  d.entries = d.entries || {};
+  d.assignmentMeta = d.assignmentMeta || {};
+  d.timePresets = d.timePresets || DEFAULT_TIME_PRESETS.map(x=>({...x}));
+  d.providerAssignments = d.providerAssignments || {};
+  d.providerDone = d.providerDone || {};
+  d.floatAssignments = d.floatAssignments || defaultFloatAssignments();
+  ensureProviderAssignmentsScaffold(d);
+}
 
-    toast("Auto-guess applied. Review and correct.");
-    renderRoster(payload);
+function defaultFloatAssignments(){
+  // per day: floatMA staffId + location + preset, floatXR staffId + location + preset + room
+  const o = {};
+  DAYS.forEach(d=>{
+    o[d] = {
+      ma: { staffId:null, location:"", presetId:"" },
+      xr: { staffId:null, location:"", presetId:"", roomId:"" }
+    };
   });
+  return o;
 }
 
-/* ---------------- Week pickers ---------------- */
+function ensureProviderAssignmentsScaffold(payload){
+  payload.providerAssignments = payload.providerAssignments || {};
+  payload.providerDone = payload.providerDone || {};
+  payload.floatAssignments = payload.floatAssignments || defaultFloatAssignments();
+  payload.timePresets = payload.timePresets || DEFAULT_TIME_PRESETS.map(x=>({...x}));
 
-function renderWeekPickers(){
-  const weeks = state.weeks.length ? state.weeks : [state.currentWeekOf];
-  const opts = weeks.map(w => `<option value="${w}">${w}</option>`).join("");
+  (payload.providers||[]).forEach(p=>{
+    if(!payload.providerAssignments[p.id]){
+      payload.providerAssignments[p.id] = {};
+      DAYS.forEach(d=>{
+        payload.providerAssignments[p.id][d] = {
+          off: false,
+          maStaffId: null,
+          // segment A always exists
+          segA: { location:"", presetId:"" },
+          // segment B optional
+          segBEnabled: false,
+          segB: { location:"", presetId:"" },
+          xrStaffId: null,
+          xrLocation: "",
+          xrRoomId: "",
+          xrPresetId: ""
+        };
+      });
+    }
+    if(payload.providerDone[p.id] === undefined) payload.providerDone[p.id] = false;
+  });
 
-  $("#weekPickMy").innerHTML = opts;
-  $("#weekPickEveryone").innerHTML = opts;
-  $("#weekPickBuilder").innerHTML = opts;
-
-  $("#weekPickMy").value = state.currentWeekOf;
-  $("#weekPickEveryone").value = state.currentWeekOf;
-  $("#weekPickBuilder").value = state.currentWeekOf;
-
-  $("#weekPickMy").onchange = async (e)=>{ await changeWeek(e.target.value); };
-  $("#weekPickEveryone").onchange = async (e)=>{ await changeWeek(e.target.value); };
-  $("#weekPickBuilder").onchange = async (e)=>{ await changeWeek(e.target.value); };
-}
-
-function setAllWeekPickers(week){
-  $("#weekPickMy").value = week;
-  $("#weekPickEveryone").value = week;
-  $("#weekPickBuilder").value = week;
-}
-
-async function changeWeek(week){
-  state.currentWeekOf = week;
-  setAllWeekPickers(week);
-  await loadPublished(week);
-  renderAll();
+  // keep activeProviderId valid
+  if(state.activeProviderId && !(payload.providers||[]).some(p=>p.id===state.activeProviderId)){
+    state.activeProviderId = null;
+  }
 }
 
 /* ---------------- Rendering ---------------- */
@@ -552,6 +503,8 @@ function renderAll(){
 function getActiveForViewing(){
   return state.published;
 }
+
+/* ---------------- My / Everyone (staff-driven view) ---------------- */
 
 function renderMy(){
   const sched = getActiveForViewing();
@@ -575,8 +528,8 @@ function renderMy(){
 
   if(!me){
     $("#myMatchPill").textContent = "No match";
-    $("#todayCard").innerHTML = `<div class="muted">Your email (${escapeHtml(state.auth.email)}) isn’t mapped to the roster for this week.</div>`;
-    $("#weekCards").innerHTML = `<div class="muted">Ask an editor to add your email in Builder → Roster.</div>`;
+    $("#todayCard").innerHTML = `<div class="muted">Your email (${escapeHtml(state.auth.email)}) isn’t mapped to roster.</div>`;
+    $("#weekCards").innerHTML = `<div class="muted">Ask an editor to add your email in Builder.</div>`;
     return;
   }
 
@@ -584,10 +537,10 @@ function renderMy(){
 
   const entries = sched.entries?.[me.id] || {};
   const todayName = dayName(new Date());
-  const todayVal = (todayName && entries[todayName]) ? templateTextById(sched, entries[todayName]) : null;
+  const todayVal = (todayName && entries[todayName]) ? (templateTextById(sched, entries[todayName]) || "") : "";
 
   $("#todayCard").innerHTML = `
-    <div style="font-weight:900; color:var(--char)">${formatLongDate(new Date())}</div>
+    <div style="font-weight:900">${formatLongDate(new Date())}</div>
     <div style="margin-top:10px; font-size:16px; font-weight:900">${escapeHtml(todayVal || "No assignment today")}</div>
   `;
 
@@ -623,12 +576,14 @@ function renderEveryone(){
 
   const rows = sched.roster
     .filter(r => role === "ALL" ? true : r.role === role)
-    .filter(r => !q ? true : r.name.toLowerCase().includes(q));
+    .filter(r => !q ? true : r.name.toLowerCase().includes(q))
+    .slice()
+    .sort((a,b)=>a.name.localeCompare(b.name));
 
   thead.innerHTML = `
     <tr>
       <th style="min-width:220px;text-align:left;">Team Member</th>
-      ${DAYS.map(d=>`<th style="min-width:200px;text-align:left;">${d}</th>`).join("")}
+      ${DAYS.map(d=>`<th style="min-width:240px;text-align:left;">${d}</th>`).join("")}
     </tr>
   `;
 
@@ -638,7 +593,7 @@ function renderEveryone(){
       <tr>
         <td class="nameCell">
           ${escapeHtml(r.name)}
-          <span class="roleTag">${r.role}</span>
+          <span class="roleTag">${escapeHtml(r.role)}</span>
         </td>
         ${DAYS.map(d=>{
           const tid = e[d];
@@ -649,6 +604,8 @@ function renderEveryone(){
     `;
   }).join("");
 }
+
+/* ---------------- Builder (provider-driven) ---------------- */
 
 function renderBuilder(){
   if(!state.auth.editor){
@@ -667,178 +624,907 @@ function renderBuilder(){
 
   if(!draft && pub){
     state.draft = deepClone(pub);
+    normalizeDraft(state.draft);
+  }
+  if(!state.draft){
+    // start empty but scaffolded
+    state.draft = {
+      weekOf: week,
+      roster: [],
+      providers: [],
+      timePresets: DEFAULT_TIME_PRESETS.map(x=>({...x})),
+      providerAssignments: {},
+      providerDone: {},
+      floatAssignments: defaultFloatAssignments(),
+
+      // staff-view fields (generated on save/publish)
+      templates: [],
+      entries: {},
+      assignmentMeta: {}
+    };
+    normalizeDraft(state.draft);
   }
 
-  const payload = ensureDraftWeek(false);
-  if(!payload){
-    $("#rosterEmailList").innerHTML = `<div class="muted">Import schedule / load published / load defaults.</div>`;
-    $("#providerList").innerHTML = `<div class="muted">Import providers or load defaults.</div>`;
-    $("#locationList").innerHTML = renderLocationBadges();
-    $("#builderGrid").querySelector("thead").innerHTML = "";
-    $("#builderGrid").querySelector("tbody").innerHTML = `<tr><td class="muted" style="padding:14px">—</td></tr>`;
+  const payload = state.draft;
+  normalizeDraft(payload);
+
+  renderRoster(payload);
+  renderTimePresets(payload);
+  renderLocations();
+
+  renderProviderList(payload);
+  renderActiveProvider(payload);
+  renderFloatPool(payload);
+}
+
+/* Provider list left */
+
+function renderProviderList(payload){
+  const list = $("#providerList");
+  const providers = (payload.providers||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const q = (state.providerSearch||"").toLowerCase();
+
+  const filtered = providers.filter(p => !q ? true : p.name.toLowerCase().includes(q));
+
+  if(!filtered.length){
+    list.innerHTML = `<div class="muted" style="padding:10px">No providers loaded.</div>`;
     return;
   }
 
-  renderRoster(payload);
-  renderProviders(payload);
-  renderLocations();
-  renderBuilderGrid(payload);
+  list.innerHTML = filtered.map(p=>{
+    const done = isProviderComplete(payload, p.id) || !!payload.providerDone[p.id];
+    const isActive = state.activeProviderId === p.id;
+    const dotClass = done ? "good" : "bad";
+    return `
+      <div class="providerItem ${isActive ? "is-active":""}" data-provider="${escapeHtml(p.id)}">
+        <div>
+          <div class="providerName">${escapeHtml(p.name)}</div>
+          <div class="providerMeta">${done ? "Complete" : "Incomplete"}</div>
+        </div>
+        <div class="dot ${dotClass}"></div>
+      </div>
+    `;
+  }).join("");
+
+  list.querySelectorAll("[data-provider]").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      state.activeProviderId = el.dataset.provider;
+      renderProviderList(payload);
+      renderActiveProvider(payload);
+    });
+  });
 }
 
-/* ---------------- Draft helpers ---------------- */
+/* Active provider editor */
 
-function ensureDraftWeek(showToastOnFail=true){
-  if(!state.draft){
-    if(showToastOnFail) toast("No draft loaded. Import schedule or load published/defaults.");
-    return null;
+function renderActiveProvider(payload){
+  const title = $("#activeProviderTitle");
+  const sub = $("#activeProviderSub");
+  const table = $("#providerWeekGrid");
+  const thead = table.querySelector("thead");
+  const tbody = table.querySelector("tbody");
+
+  if(!state.activeProviderId){
+    title.textContent = "Select a provider";
+    sub.textContent = "Then assign Mon–Fri";
+    thead.innerHTML = "";
+    tbody.innerHTML = `<tr><td class="muted" style="padding:14px">Pick a provider from the left.</td></tr>`;
+    return;
   }
-  if(!state.draft.weekOf) state.draft.weekOf = state.currentWeekOf;
-  if(!state.draft.templates) state.draft.templates = [];
-  if(!state.draft.entries) state.draft.entries = {};
-  if(!state.draft.roster) state.draft.roster = [];
-  if(!state.draft.providers) state.draft.providers = [];
-  if(!state.draft.assignmentMeta) state.draft.assignmentMeta = {};
-  return state.draft;
-}
 
-function ensureDraftForWeek(weekOf){
-  if(!state.draft || state.draft.weekOf !== weekOf){
-    state.draft = {
-      weekOf,
-      roster: [],
-      templates: [],
-      entries: {},
-      providers: [],
-      assignmentMeta: {}
-    };
+  const provider = (payload.providers||[]).find(p=>p.id===state.activeProviderId);
+  if(!provider){
+    state.activeProviderId = null;
+    return renderActiveProvider(payload);
   }
-  ensureDraftWeek(false);
-  return state.draft;
+
+  title.textContent = provider.name;
+  sub.textContent = `Assign MA + Location(s) + Time(s), plus XR room if needed.`;
+
+  thead.innerHTML = `
+    <tr>
+      <th style="min-width:120px">Day</th>
+      <th style="min-width:210px">MA</th>
+      <th style="min-width:260px">Segment A (Location + Time)</th>
+      <th style="min-width:310px">Segment B (optional)</th>
+      <th style="min-width:280px">XR Room (optional)</th>
+      <th style="min-width:140px">Actions</th>
+    </tr>
+  `;
+
+  const locks = computeDayLocks(payload); // {day:{MA:Set, XR:Set}}
+
+  tbody.innerHTML = DAYS.map(day=>{
+    const cell = payload.providerAssignments[provider.id][day];
+
+    const maName = cell.off ? "OFF" : staffLabel(payload, cell.maStaffId, "MA");
+    const segA = cell.off ? "—" : segmentLabel(payload, cell.segA);
+    const segB = cell.off ? "—" : (cell.segBEnabled ? segmentLabel(payload, cell.segB) : "—");
+    const xr = cell.off ? "—" : xrLabel(payload, cell);
+
+    const maLockedText = cell.maStaffId ? lockTextForStaffDay(payload, cell.maStaffId, day, provider.id, "MA") : "";
+    const xrLockedText = cell.xrStaffId ? lockTextForStaffDay(payload, cell.xrStaffId, day, provider.id, "XR") : "";
+
+    const done = isProviderCompleteDay(payload, provider.id, day);
+
+    return `
+      <tr>
+        <td style="font-weight:900">${day} ${done ? `<span class="roleTag" style="margin-left:8px; border-color: rgba(31,157,85,.7); background: rgba(31,157,85,.18)">Done</span>` : ""}</td>
+
+        <td>
+          <div style="font-weight:900">${escapeHtml(maName)}</div>
+          ${maLockedText ? `<div class="muted small" style="margin-top:6px">${escapeHtml(maLockedText)}</div>` : ""}
+        </td>
+
+        <td>
+          <div style="font-weight:900">${escapeHtml(segA)}</div>
+        </td>
+
+        <td>
+          <div style="font-weight:900">${escapeHtml(segB)}</div>
+        </td>
+
+        <td>
+          <div style="font-weight:900">${escapeHtml(xr)}</div>
+          ${xrLockedText ? `<div class="muted small" style="margin-top:6px">${escapeHtml(xrLockedText)}</div>` : ""}
+        </td>
+
+        <td>
+          <button class="btn btnSmall btnGhost" data-edit="${provider.id}" data-day="${day}">Edit</button>
+          <button class="btn btnSmall btnGhost" data-clear="${provider.id}" data-day="${day}">Clear</button>
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  tbody.querySelectorAll("[data-edit]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      openProviderDayModal(payload, btn.dataset.edit, btn.dataset.day);
+    });
+  });
+
+  tbody.querySelectorAll("[data-clear]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const pid = btn.dataset.clear;
+      const day = btn.dataset.day;
+      payload.providerAssignments[pid][day] = defaultProviderDayCell();
+      payload.providerDone[pid] = false;
+      renderProviderList(payload);
+      renderActiveProvider(payload);
+      renderFloatPool(payload);
+    });
+  });
 }
 
-function blankWeekEntries(){
-  const o = {};
-  DAYS.forEach(d => o[d] = null);
-  return o;
+function defaultProviderDayCell(){
+  return {
+    off:false,
+    maStaffId:null,
+    segA:{ location:"", presetId:"" },
+    segBEnabled:false,
+    segB:{ location:"", presetId:"" },
+    xrStaffId:null,
+    xrLocation:"",
+    xrRoomId:"",
+    xrPresetId:""
+  };
 }
 
-/* ---------------- Locations ---------------- */
+/* Float pool */
 
-function renderLocations(){
-  $("#locationList").innerHTML = LOCATIONS.map(l => `
-    <div class="locationRow">
-      <div style="font-weight:900;color:rgba(31,41,55,.95)">${escapeHtml(l.name)}</div>
-      <div class="roleTag">${escapeHtml(l.code)}</div>
-    </div>
-  `).join("");
+function renderFloatPool(payload){
+  const box = $("#floatBox");
+  const locks = computeDayLocks(payload);
+  const allProvidersCoveredByDay = computeAllProvidersCoveredByDay(payload); // {day:boolean}
+
+  box.innerHTML = DAYS.map(day=>{
+    const ok = allProvidersCoveredByDay[day];
+    const float = payload.floatAssignments[day];
+    const maLabel = staffLabel(payload, float.ma.staffId, "MA");
+    const xrLabelTxt = staffLabel(payload, float.xr.staffId, "XR");
+
+    return `
+      <div class="floatRow">
+        <div class="floatRowTitle">${day}</div>
+        <div class="muted small">${ok ? "All providers covered: Float allowed" : "Providers still missing: Float blocked"}</div>
+
+        <div class="row" style="padding:0; gap:10px; margin-top:8px">
+          <div class="field grow" style="min-width:220px">
+            <label>Float MA</label>
+            <select data-float-ma="${day}" ${ok ? "" : "disabled"}>
+              ${staffOptions(payload, "MA", float.ma.staffId, locks[day]?.MA, /*allowSelf*/ true)}
+            </select>
+          </div>
+          <div class="field grow" style="min-width:220px">
+            <label>Location</label>
+            <select data-float-ma-loc="${day}" ${ok ? "" : "disabled"}>
+              ${locationOptionsHTML(float.ma.location)}
+            </select>
+          </div>
+          <div class="field" style="min-width:200px">
+            <label>Time</label>
+            <select data-float-ma-time="${day}" ${ok ? "" : "disabled"}>
+              ${presetOptions(payload, float.ma.presetId)}
+            </select>
+          </div>
+        </div>
+
+        <div class="row" style="padding:0; gap:10px; margin-top:10px">
+          <div class="field grow" style="min-width:220px">
+            <label>Float XR</label>
+            <select data-float-xr="${day}" ${ok ? "" : "disabled"}>
+              ${staffOptions(payload, "XR", float.xr.staffId, locks[day]?.XR, true)}
+            </select>
+          </div>
+          <div class="field grow" style="min-width:220px">
+            <label>Location</label>
+            <select data-float-xr-loc="${day}" ${ok ? "" : "disabled"}>
+              ${locationOptionsHTML(float.xr.location)}
+            </select>
+          </div>
+          <div class="field" style="min-width:200px">
+            <label>Time</label>
+            <select data-float-xr-time="${day}" ${ok ? "" : "disabled"}>
+              ${presetOptions(payload, float.xr.presetId)}
+            </select>
+          </div>
+          <div class="field" style="min-width:200px">
+            <label>XR Room</label>
+            <select data-float-xr-room="${day}" ${ok ? "" : "disabled"}>
+              ${xrRoomOptions(float.xr.roomId)}
+            </select>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  // wire float inputs
+  DAYS.forEach(day=>{
+    const ok = computeAllProvidersCoveredByDay(payload)[day];
+    if(!ok) return;
+
+    const selMA = box.querySelector(`[data-float-ma="${day}"]`);
+    const selMALoc = box.querySelector(`[data-float-ma-loc="${day}"]`);
+    const selMATime = box.querySelector(`[data-float-ma-time="${day}"]`);
+
+    const selXR = box.querySelector(`[data-float-xr="${day}"]`);
+    const selXRLoc = box.querySelector(`[data-float-xr-loc="${day}"]`);
+    const selXRTime = box.querySelector(`[data-float-xr-time="${day}"]`);
+    const selXRRoom = box.querySelector(`[data-float-xr-room="${day}"]`);
+
+    selMA?.addEventListener("change", ()=>{
+      payload.floatAssignments[day].ma.staffId = selMA.value || null;
+      renderFloatPool(payload);
+      renderActiveProvider(payload);
+    });
+    selMALoc?.addEventListener("change", ()=>{
+      payload.floatAssignments[day].ma.location = selMALoc.value || "";
+    });
+    selMATime?.addEventListener("change", ()=>{
+      payload.floatAssignments[day].ma.presetId = selMATime.value || "";
+    });
+
+    selXR?.addEventListener("change", ()=>{
+      payload.floatAssignments[day].xr.staffId = selXR.value || null;
+      renderFloatPool(payload);
+      renderActiveProvider(payload);
+    });
+    selXRLoc?.addEventListener("change", ()=>{
+      payload.floatAssignments[day].xr.location = selXRLoc.value || "";
+    });
+    selXRTime?.addEventListener("change", ()=>{
+      payload.floatAssignments[day].xr.presetId = selXRTime.value || "";
+    });
+    selXRRoom?.addEventListener("change", ()=>{
+      payload.floatAssignments[day].xr.roomId = selXRRoom.value || "";
+    });
+  });
 }
 
-function renderLocationBadges(){
-  return `<div class="muted">Loaded</div>`;
-}
-
-function locationOptionsHTML(selectedCode){
-  return LOCATIONS.map(l => `<option value="${l.code}" ${l.code===selectedCode?"selected":""}>${escapeHtml(l.name)} (${l.code})</option>`).join("");
-}
-
-/* ---------------- Roster (RESTORED ROLE EDIT) ---------------- */
+/* Roster list (with role editing) */
 
 function renderRoster(payload){
   const wrap = $("#rosterEmailList");
-  if(!payload.roster.length){
-    wrap.innerHTML = `<div class="muted">No roster loaded. Import staff or load default roster.</div>`;
+  const roster = (payload.roster||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  if(!roster.length){
+    wrap.innerHTML = `<div class="muted" style="padding:10px">No staff loaded. Import staff.</div>`;
     return;
   }
 
-  wrap.innerHTML = payload.roster
-    .slice()
-    .sort((a,b)=>a.name.localeCompare(b.name))
-    .map(r => `
-      <div class="templateItem">
-        <div class="templateTop">
+  const locks = computeDayLocks(payload); // day => {MA:Set, XR:Set}
+
+  wrap.innerHTML = roster.map(r=>{
+    const lockedDays = DAYS.filter(d => (locks[d]?.[r.role] || new Set()).has(r.id));
+    const lockMsg = lockedDays.length ? `Locked: ${lockedDays.join(", ")}` : `Not locked this week`;
+    return `
+      <div class="rosterItem">
+        <div class="rosterTop">
           <div>
-            <div class="templateName">${escapeHtml(r.name)}</div>
-            <div class="templateMeta">${escapeHtml(r.id)}</div>
+            <div class="rosterName">${escapeHtml(r.name)} <span class="roleTag">${escapeHtml(r.role)}</span></div>
+            <div class="muted small" style="margin-top:4px">${escapeHtml(r.email || "")}</div>
+            <div class="lockPill">🔒 ${escapeHtml(lockMsg)}</div>
           </div>
           <div class="field" style="min-width:120px; margin:0">
             <label>Role</label>
-            <select data-role-for="${r.id}">
+            <select data-role-for="${escapeHtml(r.id)}">
               <option value="MA" ${r.role==="MA"?"selected":""}>MA</option>
               <option value="XR" ${r.role==="XR"?"selected":""}>XR</option>
             </select>
           </div>
         </div>
 
-        <div style="margin-top:10px" class="field">
+        <div class="field" style="margin-top:10px">
           <label>Email</label>
-          <input data-email-for="${r.id}" type="email" placeholder="name@laorthos.com" value="${escapeHtml(r.email || "")}">
+          <input data-email-for="${escapeHtml(r.id)}" type="email" placeholder="name@laorthos.com" value="${escapeHtml(r.email || "")}" />
         </div>
       </div>
-    `).join("");
+    `;
+  }).join("");
 
-  wrap.querySelectorAll("input[data-email-for]").forEach(inp => {
-    inp.addEventListener("input", () => {
-      const pid = inp.dataset.emailFor;
-      const val = (inp.value || "").trim();
-      const person = payload.roster.find(x => x.id === pid);
-      if (person) person.email = val;
+  wrap.querySelectorAll("input[data-email-for]").forEach(inp=>{
+    inp.addEventListener("input", ()=>{
+      const id = inp.dataset.emailFor;
+      const person = payload.roster.find(x=>x.id===id);
+      if(person) person.email = (inp.value||"").trim();
     });
   });
 
   wrap.querySelectorAll("select[data-role-for]").forEach(sel=>{
     sel.addEventListener("change", ()=>{
-      const pid = sel.dataset.roleFor;
-      const person = payload.roster.find(x => x.id === pid);
+      const id = sel.dataset.roleFor;
+      const person = payload.roster.find(x=>x.id===id);
       if(!person) return;
-      const oldRole = person.role;
       person.role = sel.value;
-
-      // If role changed, keep existing assignments but rebuild display for that day
-      if(oldRole !== person.role){
-        rebuildStaffWeekDisplay(payload, person.id);
-        toast(`${person.name} role updated to ${person.role}.`);
-        renderBuilderGrid(payload);
-      }
+      toast(`${person.name} role set to ${person.role}`);
+      renderRoster(payload);
+      renderActiveProvider(payload);
+      renderFloatPool(payload);
     });
   });
 }
 
-function rebuildStaffWeekDisplay(payload, staffId){
-  const metaByDay = payload.assignmentMeta?.[staffId] || {};
-  DAYS.forEach(day=>{
-    const meta = metaByDay[day];
-    if(!meta) return;
+/* Time presets list */
 
-    // If OFF, keep OFF
-    if(meta.off){
-      const tid = ensureTemplate(payload, "OFF");
-      payload.entries[staffId] = payload.entries[staffId] || blankWeekEntries();
-      payload.entries[staffId][day] = tid;
-      return;
+function renderTimePresets(payload){
+  const list = $("#presetList");
+  payload.timePresets = payload.timePresets || DEFAULT_TIME_PRESETS.map(x=>({...x}));
+
+  list.innerHTML = payload.timePresets.map(p=>`
+    <div class="presetItem">
+      <div>
+        <div class="presetName">${escapeHtml(p.label)}</div>
+        <div class="muted small">${escapeHtml(p.start)} → ${escapeHtml(p.end)}</div>
+      </div>
+      <button class="iconBtn" title="Delete" data-del-preset="${escapeHtml(p.id)}">🗑</button>
+    </div>
+  `).join("");
+
+  list.querySelectorAll("[data-del-preset]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const id = btn.dataset.delPreset;
+      // block deleting if used
+      if(isPresetUsed(payload, id)){
+        toast("Preset is used in schedule. Clear assignments first.");
+        return;
+      }
+      payload.timePresets = payload.timePresets.filter(x=>x.id !== id);
+      toast("Preset deleted.");
+      renderTimePresets(payload);
+      renderActiveProvider(payload);
+      renderFloatPool(payload);
+    });
+  });
+}
+
+function isPresetUsed(payload, presetId){
+  for(const pid of Object.keys(payload.providerAssignments||{})){
+    for(const day of DAYS){
+      const c = payload.providerAssignments[pid][day];
+      if(c.segA?.presetId===presetId) return true;
+      if(c.segBEnabled && c.segB?.presetId===presetId) return true;
+      if(c.xrPresetId===presetId) return true;
+    }
+  }
+  for(const day of DAYS){
+    const f = payload.floatAssignments?.[day];
+    if(f?.ma?.presetId===presetId) return true;
+    if(f?.xr?.presetId===presetId) return true;
+  }
+  return false;
+}
+
+/* Locations */
+
+function renderLocations(){
+  $("#locationList").innerHTML = LOCATIONS.map(l=>`
+    <div class="locationChip">${escapeHtml(l.name)} <span>${escapeHtml(l.code)}</span></div>
+  `).join("");
+}
+
+/* ---------------- Provider day modal ---------------- */
+
+function openProviderDayModal(payload, providerId, day){
+  const provider = payload.providers.find(p=>p.id===providerId);
+  if(!provider) return;
+
+  const locks = computeDayLocks(payload);
+  const dayLocksMA = locks[day]?.MA || new Set();
+  const dayLocksXR = locks[day]?.XR || new Set();
+
+  const cell = payload.providerAssignments[providerId][day];
+  const staffMA = payload.roster.filter(r=>r.role==="MA");
+  const staffXR = payload.roster.filter(r=>r.role==="XR");
+
+  openModal({
+    title: `${provider.name} • ${day}`,
+    body: `
+      <div class="field" style="min-width:100%">
+        <label>Status</label>
+        <select id="pStatus">
+          <option value="WORK" ${!cell.off?"selected":""}>Working</option>
+          <option value="OFF" ${cell.off?"selected":""}>OFF</option>
+        </select>
+        <div class="hint">OFF clears MA/XR for this provider/day.</div>
+      </div>
+
+      <div id="pWork">
+        <div class="row" style="padding:0; margin-top:12px; gap:12px">
+          <div class="field grow" style="min-width:240px">
+            <label>MA (required)</label>
+            <select id="pMA">
+              ${staffOptions(payload, "MA", cell.maStaffId, dayLocksMA, /*allowSelf*/ true, providerId, day)}
+            </select>
+            <div class="hint">Safeguard: MA can only be assigned to one provider per day.</div>
+          </div>
+
+          <div class="field grow" style="min-width:240px">
+            <label>Segment A Location</label>
+            <select id="pLocA">${locationOptionsHTML(cell.segA.location)}</select>
+          </div>
+
+          <div class="field" style="min-width:220px">
+            <label>Segment A Time</label>
+            <select id="pTimeA">${presetOptions(payload, cell.segA.presetId)}</select>
+          </div>
+        </div>
+
+        <div class="field" style="min-width:100%; margin-top:12px">
+          <label>Two locations same day?</label>
+          <select id="pSegBEnabled">
+            <option value="NO" ${!cell.segBEnabled?"selected":""}>No</option>
+            <option value="YES" ${cell.segBEnabled?"selected":""}>Yes (Segment B)</option>
+          </select>
+          <div class="hint">Use this when provider moves locations in the same day. MA follows provider.</div>
+        </div>
+
+        <div id="pSegBRow" class="row" style="padding:0; margin-top:12px; gap:12px">
+          <div class="field grow" style="min-width:240px">
+            <label>Segment B Location</label>
+            <select id="pLocB">${locationOptionsHTML(cell.segB.location)}</select>
+          </div>
+          <div class="field" style="min-width:220px">
+            <label>Segment B Time</label>
+            <select id="pTimeB">${presetOptions(payload, cell.segB.presetId)}</select>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="row" style="padding:0; margin-top:12px; gap:12px">
+          <div class="field grow" style="min-width:240px">
+            <label>XR Staff (optional)</label>
+            <select id="pXR">
+              ${staffOptions(payload, "XR", cell.xrStaffId, dayLocksXR, true, providerId, day)}
+            </select>
+            <div class="hint">Safeguard: XR staff can only be assigned to one provider per day.</div>
+          </div>
+
+          <div class="field grow" style="min-width:240px">
+            <label>XR Location</label>
+            <select id="pXRLoc">${locationOptionsHTML(cell.xrLocation)}</select>
+          </div>
+
+          <div class="field" style="min-width:200px">
+            <label>XR Room</label>
+            <select id="pXRRoom">${xrRoomOptions(cell.xrRoomId)}</select>
+          </div>
+
+          <div class="field" style="min-width:220px">
+            <label>XR Time</label>
+            <select id="pXRTime">${presetOptions(payload, cell.xrPresetId)}</select>
+          </div>
+        </div>
+      </div>
+    `,
+    foot: `
+      <button class="btn btnGhost" data-close="1">Cancel</button>
+      <button class="btn btnGhost" id="pClear">Clear Day</button>
+      <button class="btn" id="pSave">Save</button>
+    `,
+    onAfter(){
+      const workWrap = $("#pWork");
+      const statusSel = $("#pStatus");
+      const segBEnabledSel = $("#pSegBEnabled");
+      const segBRow = $("#pSegBRow");
+
+      const sync = ()=>{
+        const off = statusSel.value === "OFF";
+        workWrap.style.display = off ? "none" : "";
+        segBRow.style.display = (segBEnabledSel.value === "YES") ? "" : "none";
+      };
+      statusSel.addEventListener("change", sync);
+      segBEnabledSel.addEventListener("change", sync);
+      sync();
+
+      $("#pClear").addEventListener("click", ()=>{
+        payload.providerAssignments[providerId][day] = defaultProviderDayCell();
+        payload.providerDone[providerId] = false;
+        closeModal();
+        renderProviderList(payload);
+        renderActiveProvider(payload);
+        renderFloatPool(payload);
+      });
+
+      $("#pSave").addEventListener("click", ()=>{
+        const off = ($("#pStatus").value === "OFF");
+        if(off){
+          payload.providerAssignments[providerId][day] = defaultProviderDayCell();
+          payload.providerAssignments[providerId][day].off = true;
+          payload.providerDone[providerId] = false;
+          closeModal();
+          renderProviderList(payload);
+          renderActiveProvider(payload);
+          renderFloatPool(payload);
+          return;
+        }
+
+        const maStaffId = ($("#pMA").value || "").trim() || null;
+        if(!maStaffId) return toast("MA is required.");
+
+        // enforce lock (unless it’s currently assigned to this same provider/day)
+        if(isStaffLockedForDay(payload, maStaffId, day, "MA", providerId)){
+          return toast("That MA is already assigned to another provider for this day.");
+        }
+
+        const locA = ($("#pLocA").value||"").trim();
+        const timeA = ($("#pTimeA").value||"").trim();
+        if(!locA || !timeA) return toast("Segment A location and time are required.");
+
+        const segBEnabled = ($("#pSegBEnabled").value === "YES");
+        let locB = "", timeB = "";
+        if(segBEnabled){
+          locB = ($("#pLocB").value||"").trim();
+          timeB = ($("#pTimeB").value||"").trim();
+          if(!locB || !timeB) return toast("Segment B location and time are required.");
+        }
+
+        const xrStaffId = ($("#pXR").value||"").trim() || null;
+        const xrLoc = ($("#pXRLoc").value||"").trim();
+        const xrRoomId = ($("#pXRRoom").value||"").trim();
+        const xrTime = ($("#pXRTime").value||"").trim();
+
+        if(xrStaffId){
+          if(isStaffLockedForDay(payload, xrStaffId, day, "XR", providerId)){
+            return toast("That XR staff is already assigned to another provider for this day.");
+          }
+          if(!xrLoc || !xrRoomId || !xrTime) return toast("XR requires location + room + time.");
+        }
+
+        payload.providerAssignments[providerId][day] = {
+          off:false,
+          maStaffId,
+          segA:{ location: locA, presetId: timeA },
+          segBEnabled,
+          segB:{ location: locB, presetId: timeB },
+          xrStaffId,
+          xrLocation: xrStaffId ? xrLoc : "",
+          xrRoomId: xrStaffId ? xrRoomId : "",
+          xrPresetId: xrStaffId ? xrTime : ""
+        };
+
+        // auto-done logic: complete if MA assigned + segA complete; segB if enabled complete; XR if set complete
+        payload.providerDone[providerId] = payload.providerDone[providerId] || false;
+
+        closeModal();
+        renderProviderList(payload);
+        renderActiveProvider(payload);
+        renderFloatPool(payload);
+      });
+    }
+  });
+}
+
+/* ---------------- Completion rules ---------------- */
+
+function isProviderComplete(payload, providerId){
+  // complete if each weekday has either OFF or valid MA + segA (+ segB if enabled) and XR is either empty or valid
+  return DAYS.every(d => isProviderCompleteDay(payload, providerId, d));
+}
+
+function isProviderCompleteDay(payload, providerId, day){
+  const c = payload.providerAssignments?.[providerId]?.[day];
+  if(!c) return false;
+  if(c.off) return true;
+
+  if(!c.maStaffId) return false;
+  if(!c.segA?.location || !c.segA?.presetId) return false;
+  if(c.segBEnabled){
+    if(!c.segB?.location || !c.segB?.presetId) return false;
+  }
+  if(c.xrStaffId){
+    if(!c.xrLocation || !c.xrRoomId || !c.xrPresetId) return false;
+  }
+  return true;
+}
+
+function computeAllProvidersCoveredByDay(payload){
+  const out = {};
+  const providers = payload.providers || [];
+  DAYS.forEach(day=>{
+    out[day] = providers.every(p => isProviderCompleteDay(payload, p.id, day));
+  });
+  return out;
+}
+
+/* ---------------- Locks (Safeguard) ---------------- */
+
+function computeDayLocks(payload){
+  const locks = {};
+  DAYS.forEach(d=>{
+    locks[d] = { MA: new Set(), XR: new Set() };
+  });
+
+  for(const pid of Object.keys(payload.providerAssignments||{})){
+    for(const day of DAYS){
+      const c = payload.providerAssignments[pid][day];
+      if(!c || c.off) continue;
+
+      if(c.maStaffId) locks[day].MA.add(c.maStaffId);
+      if(c.xrStaffId) locks[day].XR.add(c.xrStaffId);
+    }
+  }
+
+  // float locks too (count as lock)
+  for(const day of DAYS){
+    const f = payload.floatAssignments?.[day];
+    if(f?.ma?.staffId) locks[day].MA.add(f.ma.staffId);
+    if(f?.xr?.staffId) locks[day].XR.add(f.xr.staffId);
+  }
+
+  return locks;
+}
+
+function isStaffLockedForDay(payload, staffId, day, role, currentProviderId){
+  // locked if assigned to a different provider (or float) on same day
+  for(const pid of Object.keys(payload.providerAssignments||{})){
+    const c = payload.providerAssignments[pid][day];
+    if(!c || c.off) continue;
+
+    if(role === "MA" && c.maStaffId === staffId){
+      if(pid !== currentProviderId) return true;
+    }
+    if(role === "XR" && c.xrStaffId === staffId){
+      if(pid !== currentProviderId) return true;
+    }
+  }
+
+  const f = payload.floatAssignments?.[day];
+  if(role==="MA" && f?.ma?.staffId === staffId) return true;
+  if(role==="XR" && f?.xr?.staffId === staffId) return true;
+
+  return false;
+}
+
+function lockTextForStaffDay(payload, staffId, day, currentProviderId, role){
+  // show where they are assigned (provider name or FLOAT)
+  for(const pid of Object.keys(payload.providerAssignments||{})){
+    const c = payload.providerAssignments[pid][day];
+    if(!c || c.off) continue;
+    if(role==="MA" && c.maStaffId===staffId && pid!==currentProviderId){
+      const p = payload.providers.find(x=>x.id===pid);
+      return `Locked to ${p?.name || "another provider"} (${day})`;
+    }
+    if(role==="XR" && c.xrStaffId===staffId && pid!==currentProviderId){
+      const p = payload.providers.find(x=>x.id===pid);
+      return `Locked to ${p?.name || "another provider"} (${day})`;
+    }
+  }
+  const f = payload.floatAssignments?.[day];
+  if(role==="MA" && f?.ma?.staffId===staffId) return `Locked to FLOAT (${day})`;
+  if(role==="XR" && f?.xr?.staffId===staffId) return `Locked to FLOAT (${day})`;
+  return "";
+}
+
+/* ---------------- Staff/Provider labels/options ---------------- */
+
+function staffLabel(payload, staffId, role){
+  if(!staffId) return role === "MA" ? "Unassigned" : "None";
+  const s = (payload.roster||[]).find(r=>r.id===staffId);
+  return s ? s.name : "Unknown";
+}
+
+function segmentLabel(payload, seg){
+  if(!seg?.location || !seg?.presetId) return "—";
+  const loc = seg.location;
+  const preset = (payload.timePresets||[]).find(x=>x.id===seg.presetId);
+  return `${loc} • ${preset ? preset.label : seg.presetId}`;
+}
+
+function xrLabel(payload, cell){
+  if(!cell.xrStaffId) return "—";
+  const staff = staffLabel(payload, cell.xrStaffId, "XR");
+  const preset = (payload.timePresets||[]).find(x=>x.id===cell.xrPresetId);
+  const time = preset ? preset.label : "";
+  return `${staff} • ${cell.xrLocation} • ${cell.xrRoomId} • ${time}`.trim();
+}
+
+function staffOptions(payload, role, selectedId, lockedSet, allowSelf=true, currentProviderId=null, day=null){
+  const roster = (payload.roster||[]).filter(r => r.role===role).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const opts = [
+    `<option value="">— ${role==="MA" ? "Select MA" : "None"} —</option>`
+  ];
+
+  roster.forEach(r=>{
+    let disabled = false;
+    let tag = "";
+
+    if(day){
+      // more accurate: check if locked elsewhere
+      const lockedElsewhere = isStaffLockedForDay(payload, r.id, day, role, currentProviderId);
+      if(lockedElsewhere && r.id !== selectedId){
+        disabled = true;
+        tag = " (locked)";
+      }
+    }else{
+      // fallback
+      if(lockedSet && lockedSet.has(r.id) && r.id !== selectedId) disabled = true;
     }
 
-    // update role + rebuild text
-    meta.role = payload.roster.find(r=>r.id===staffId)?.role || meta.role;
+    opts.push(`<option value="${escapeHtml(r.id)}" ${r.id===selectedId?"selected":""} ${disabled?"disabled":""}>${escapeHtml(r.name)}${tag}</option>`);
+  });
 
-    const providerName = meta.providerId
-      ? (payload.providers||[]).find(p=>p.id===meta.providerId)?.name || ""
-      : "";
+  return opts.join("");
+}
 
-    const display = buildAssignmentText({
-      role: meta.role,
-      locationCode: meta.location,
-      providerName,
-      start: meta.start,
-      end: meta.end
-    });
+function locationOptionsHTML(selectedCode){
+  const opts = [`<option value="">— Select —</option>`]
+    .concat(LOCATIONS.map(l=>`<option value="${l.code}" ${l.code===selectedCode?"selected":""}>${l.name} (${l.code})</option>`));
+  return opts.join("");
+}
 
-    const tid = ensureTemplate(payload, display);
-    payload.entries[staffId] = payload.entries[staffId] || blankWeekEntries();
-    payload.entries[staffId][day] = tid;
+function presetOptions(payload, selectedId){
+  const presets = (payload.timePresets||[]).slice();
+  const opts = [`<option value="">— Select —</option>`]
+    .concat(presets.map(p => `<option value="${p.id}" ${p.id===selectedId?"selected":""}>${escapeHtml(p.label)}</option>`));
+  return opts.join("");
+}
+
+function xrRoomOptions(selectedId){
+  const opts = [`<option value="">— Select —</option>`]
+    .concat(XR_ROOMS.map(r => `<option value="${r.id}" ${r.id===selectedId?"selected":""}>${escapeHtml(r.label)}</option>`));
+  return opts.join("");
+}
+
+/* ---------------- Modals: Add staff/provider/preset ---------------- */
+
+function openAddStaffModal(payload){
+  openModal({
+    title: "Add Staff",
+    body: `
+      <div class="field" style="min-width:100%">
+        <label>Full name</label>
+        <input id="addStaffName" type="text" placeholder="First Last" />
+      </div>
+      <div class="field" style="min-width:100%; margin-top:10px">
+        <label>Email</label>
+        <input id="addStaffEmail" type="email" placeholder="name@laorthos.com" />
+      </div>
+      <div class="field" style="min-width:100%; margin-top:10px">
+        <label>Role</label>
+        <select id="addStaffRole">
+          <option value="MA">MA</option>
+          <option value="XR">XR</option>
+        </select>
+      </div>
+    `,
+    foot: `
+      <button class="btn btnGhost" data-close="1">Cancel</button>
+      <button class="btn" id="addStaffSave">Add</button>
+    `,
+    onAfter(){
+      $("#addStaffSave").addEventListener("click", ()=>{
+        const name = ($("#addStaffName").value||"").trim();
+        const email = ($("#addStaffEmail").value||"").trim();
+        const role = $("#addStaffRole").value;
+
+        if(!name) return toast("Name required.");
+        const idBase = slug(name);
+        const id = payload.roster.some(r=>r.id===idBase) ? `${idBase}-${Math.random().toString(16).slice(2,6)}` : idBase;
+
+        payload.roster.push({ id, name, role, email });
+        closeModal();
+        toast("Staff added.");
+        renderRoster(payload);
+        renderActiveProvider(payload);
+        renderFloatPool(payload);
+      });
+    }
   });
 }
 
-/* ---------------- Staff import ---------------- */
+function openAddProviderModal(payload){
+  openModal({
+    title: "Add Provider",
+    body: `
+      <div class="field" style="min-width:100%">
+        <label>Provider name</label>
+        <input id="addProvName" type="text" placeholder="Dr. Lastname" />
+      </div>
+    `,
+    foot: `
+      <button class="btn btnGhost" data-close="1">Cancel</button>
+      <button class="btn" id="addProvSave">Add</button>
+    `,
+    onAfter(){
+      $("#addProvSave").addEventListener("click", ()=>{
+        const name = ($("#addProvName").value||"").trim();
+        if(!name) return toast("Provider name required.");
+        payload.providers = mergeProviders(payload.providers || [], [{ id: slug(name), name }]);
+        ensureProviderAssignmentsScaffold(payload);
+        closeModal();
+        toast("Provider added.");
+        renderProviderList(payload);
+      });
+    }
+  });
+}
+
+function openAddTimePresetModal(payload){
+  openModal({
+    title: "Add Time Preset",
+    body: `
+      <div class="field" style="min-width:100%">
+        <label>Label</label>
+        <input id="tpLabel" type="text" placeholder="Example: 9:00am - 5:30pm" />
+      </div>
+      <div class="row" style="padding:0; margin-top:12px; gap:12px">
+        <div class="field grow" style="min-width:220px">
+          <label>Start</label>
+          <input id="tpStart" type="time" />
+        </div>
+        <div class="field grow" style="min-width:220px">
+          <label>End</label>
+          <input id="tpEnd" type="time" />
+        </div>
+      </div>
+      <div class="hint">This will become selectable everywhere (Provider days + Float).</div>
+    `,
+    foot: `
+      <button class="btn btnGhost" data-close="1">Cancel</button>
+      <button class="btn" id="tpSave">Add</button>
+    `,
+    onAfter(){
+      $("#tpSave").addEventListener("click", ()=>{
+        const label = ($("#tpLabel").value||"").trim();
+        const start = ($("#tpStart").value||"").trim();
+        const end = ($("#tpEnd").value||"").trim();
+        if(!label) return toast("Label required.");
+        if(!start || !end) return toast("Start and end required.");
+
+        const id = `tp_${Math.random().toString(16).slice(2,10)}`;
+        payload.timePresets.push({ id, label, start, end });
+        closeModal();
+        toast("Preset added.");
+        renderTimePresets(payload);
+        renderActiveProvider(payload);
+        renderFloatPool(payload);
+      });
+    }
+  });
+}
+
+/* ---------------- Staff/prov CSV parsing ---------------- */
 
 function parseStaffCSV(text){
   const rows = csvToRows(text).filter(r => r.some(x => (x||"").trim() !== ""));
@@ -875,64 +1561,34 @@ function parseStaffCSV(text){
 }
 
 function mergeStaffIntoRoster(payload, staff, { defaultRole="MA" } = {}){
-  const existingByEmail = new Map(
-    (payload.roster||[]).map(r => [(r.email||"").toLowerCase(), r])
-  );
+  payload.roster = payload.roster || [];
+  const existingByEmail = new Map(payload.roster.map(r => [(r.email||"").toLowerCase(), r]));
 
   staff.forEach(s=>{
     const email = (s.email||"").trim();
     if(!email) return;
-    const emailKey = email.toLowerCase();
+    const key = email.toLowerCase();
 
-    if(existingByEmail.has(emailKey)){
-      const person = existingByEmail.get(emailKey);
-      if(!person.name && s.name) person.name = s.name;
+    if(existingByEmail.has(key)){
+      const person = existingByEmail.get(key);
+      if(s.name) person.name = s.name;
       if(s.role) person.role = s.role;
       if(!person.role) person.role = defaultRole;
       return;
     }
 
     const name = (s.name||"").trim() || email.split("@")[0];
-    const id = slug(name);
-    const idFinal = payload.roster.some(r=>r.id===id) ? `${id}-${Math.random().toString(16).slice(2,6)}` : id;
+    const idBase = slug(name);
+    const id = payload.roster.some(r=>r.id===idBase) ? `${idBase}-${Math.random().toString(16).slice(2,6)}` : idBase;
 
-    const role = s.role || defaultRole;
-    const person = { id: idFinal, name, role, email };
-    payload.roster.push(person);
-    payload.entries[idFinal] = payload.entries[idFinal] || blankWeekEntries();
-    existingByEmail.set(emailKey, person);
-  });
-
-  payload.roster.forEach(r=>{
-    payload.entries[r.id] = payload.entries[r.id] || blankWeekEntries();
-  });
-
-  if(!payload.assignmentMeta) payload.assignmentMeta = {};
-}
-
-function mergeRoster(payload, incomingRoster){
-  payload.roster = payload.roster || [];
-  const byId = new Map(payload.roster.map(r=>[r.id, r]));
-  incomingRoster.forEach(r=>{
-    if(!r.id) r.id = slug(r.name);
-    if(byId.has(r.id)){
-      const cur = byId.get(r.id);
-      cur.name = r.name || cur.name;
-      cur.email = r.email || cur.email;
-      cur.role = r.role || cur.role || "MA";
-    }else{
-      payload.roster.push({ id:r.id, name:r.name, email:r.email||"", role:r.role||"MA" });
-      payload.entries[r.id] = payload.entries[r.id] || blankWeekEntries();
-    }
+    payload.roster.push({ id, name, role: s.role || defaultRole, email });
+    existingByEmail.set(key, payload.roster[payload.roster.length-1]);
   });
 }
-
-/* ---------------- Providers ---------------- */
 
 function parseProvidersCSV(text){
   const rows = csvToRows(text).map(r => (r[0]||"").trim()).filter(Boolean);
   if(!rows.length) return [];
-
   const first = rows[0].toLowerCase();
   const startIdx = (first.includes("provider")) ? 1 : 0;
 
@@ -957,256 +1613,106 @@ function mergeProviders(current, incoming){
   return Array.from(byName.values()).sort((a,b)=>a.name.localeCompare(b.name));
 }
 
-function renderProviders(payload){
-  const list = $("#providerList");
-  const providers = payload.providers || [];
-  if(!providers.length){
-    list.innerHTML = `<div class="muted">No providers loaded.</div>`;
-    return;
-  }
+/* ---------------- Provider-driven -> Staff-driven generation ---------------- */
 
-  list.innerHTML = providers
-    .slice()
-    .sort((a,b)=>a.name.localeCompare(b.name))
-    .map(p => `
-      <div class="providerRow">
-        <div style="font-weight:900;color:rgba(31,41,55,.95)">${escapeHtml(p.name)}</div>
-        <button class="iconBtn" title="Delete" data-prov-del="${escapeHtml(p.id)}">🗑</button>
-      </div>
-    `).join("");
+function rebuildStaffViewFromProviderDriven(payload){
+  // Creates payload.entries + payload.templates from providerAssignments + floatAssignments
+  payload.templates = [];
+  payload.entries = {};
+  payload.assignmentMeta = {};
 
-  list.querySelectorAll("[data-prov-del]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const id = btn.dataset.provDel;
-      payload.providers = (payload.providers||[]).filter(x=>x.id !== id);
-      toast("Provider deleted.");
-      renderProviders(payload);
-    });
+  const roster = payload.roster || [];
+  roster.forEach(r=>{
+    payload.entries[r.id] = {};
+    DAYS.forEach(d=> payload.entries[r.id][d] = null);
+    payload.assignmentMeta[r.id] = {};
   });
-}
 
-function providerOptionsHTML(payload, selectedId){
-  const providers = (payload.providers||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
-  const opts = [`<option value="">— Select provider —</option>`]
-    .concat(providers.map(p => `<option value="${p.id}" ${p.id===selectedId?"selected":""}>${escapeHtml(p.name)}</option>`));
-  return opts.join("");
-}
+  // helper to add template + assign
+  const put = (staffId, day, text, meta) => {
+    const tid = ensureTemplate(payload, text);
+    payload.entries[staffId][day] = tid;
+    payload.assignmentMeta[staffId][day] = meta || {};
+  };
 
-/* ---------------- Builder grid + Assignment modal (OFF ADDED) ---------------- */
+  // provider assignments
+  for(const pid of Object.keys(payload.providerAssignments||{})){
+    const provider = (payload.providers||[]).find(p=>p.id===pid);
+    for(const day of DAYS){
+      const c = payload.providerAssignments[pid][day];
+      if(!c) continue;
 
-function renderBuilderGrid(payload){
-  const table = $("#builderGrid");
-  const thead = table.querySelector("thead");
-  const tbody = table.querySelector("tbody");
+      // OFF: we leave staff assignment empty (provider off doesn't automatically mean MA off)
+      // If you want "provider OFF day" to show, we can add a provider-level report later.
+      if(c.off) continue;
 
-  if(!payload.roster.length){
-    thead.innerHTML = "";
-    tbody.innerHTML = `<tr><td class="muted" style="padding:14px">No roster loaded.</td></tr>`;
-    return;
-  }
+      // MA assignment text
+      if(c.maStaffId){
+        const maPresetA = findPreset(payload, c.segA.presetId);
+        const segAText = `${c.segA.location} ${maPresetA?.label || ""}`.trim();
 
-  thead.innerHTML = `
-    <tr>
-      <th style="min-width:220px;text-align:left;">Team Member</th>
-      ${DAYS.map(d=>`<th style="min-width:200px;text-align:left;">${d}</th>`).join("")}
-    </tr>
-  `;
-
-  const sortedRoster = payload.roster.slice().sort((a,b)=>a.name.localeCompare(b.name));
-
-  tbody.innerHTML = sortedRoster.map(r=>{
-    const e = payload.entries?.[r.id] || {};
-    return `
-      <tr>
-        <td class="nameCell">
-          ${escapeHtml(r.name)} <span class="roleTag">${r.role}</span>
-        </td>
-        ${DAYS.map(d=>{
-          const tid = e[d];
-          const txt = tid ? templateTextById(payload, tid) : "";
-          return `
-            <td>
-              <button class="cellBtn" data-pid="${r.id}" data-day="${d}">
-                ${escapeHtml(txt || "— Click to assign —")}
-              </button>
-            </td>
-          `;
-        }).join("")}
-      </tr>
-    `;
-  }).join("");
-
-  tbody.querySelectorAll(".cellBtn").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      openAssignmentModal(payload, btn.dataset.pid, btn.dataset.day);
-    });
-  });
-}
-
-function openAssignmentModal(payload, staffId, day){
-  const staff = payload.roster.find(r=>r.id===staffId);
-  if(!staff) return;
-
-  const role = staff.role || "MA";
-  const meta = (payload.assignmentMeta?.[staffId]?.[day]) || {};
-
-  const isOff = !!meta.off;
-  const defaultLoc = meta.location || LOCATIONS[0]?.code || "SFS";
-  const defaultProv = meta.providerId || "";
-  const defaultStart = meta.start || "";
-  const defaultEnd = meta.end || "";
-
-  const isMA = role === "MA";
-
-  openModal({
-    title: `${staff.name} • ${day} • ${role}`,
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Status</label>
-        <select id="asStatus">
-          <option value="WORK" ${!isOff?"selected":""}>Working</option>
-          <option value="OFF" ${isOff?"selected":""}>OFF</option>
-        </select>
-        <div class="hint">If OFF is selected, location/provider/time are not required.</div>
-      </div>
-
-      <div id="asWorkFields">
-        <div class="row" style="padding:0; margin-top:12px; gap:12px">
-          <div class="field grow" style="min-width:240px">
-            <label>Location</label>
-            <select id="asLoc">
-              ${locationOptionsHTML(defaultLoc)}
-            </select>
-          </div>
-
-          <div class="field grow" style="min-width:240px">
-            <label>Provider ${isMA ? "(required)" : "(optional)"}</label>
-            <select id="asProv">
-              ${providerOptionsHTML(payload, defaultProv)}
-            </select>
-          </div>
-        </div>
-
-        <div class="row" style="padding:0; margin-top:12px; gap:12px">
-          <div class="field" style="min-width:180px">
-            <label>Start time</label>
-            <input id="asStart" type="time" value="${escapeHtml(defaultStart)}" />
-          </div>
-          <div class="field" style="min-width:180px">
-            <label>End time</label>
-            <input id="asEnd" type="time" value="${escapeHtml(defaultEnd)}" />
-          </div>
-        </div>
-      </div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn btnGhost" id="asClear">Clear</button>
-      <button class="btn" id="asSave">Save</button>
-    `,
-    onAfter(){
-      const workFields = $("#asWorkFields");
-      const statusSel = $("#asStatus");
-
-      const sync = ()=>{
-        const off = statusSel.value === "OFF";
-        workFields.style.display = off ? "none" : "";
-      };
-      statusSel.addEventListener("change", sync);
-      sync();
-
-      $("#asClear").addEventListener("click", ()=>{
-        if(!payload.entries[staffId]) payload.entries[staffId] = blankWeekEntries();
-        payload.entries[staffId][day] = null;
-
-        if(!payload.assignmentMeta) payload.assignmentMeta = {};
-        payload.assignmentMeta[staffId] = payload.assignmentMeta[staffId] || {};
-        delete payload.assignmentMeta[staffId][day];
-
-        closeModal();
-        renderBuilderGrid(payload);
-      });
-
-      $("#asSave").addEventListener("click", ()=>{
-        const isOffNow = statusSel.value === "OFF";
-
-        if(isOffNow){
-          const tid = ensureTemplate(payload, "OFF");
-          if(!payload.entries[staffId]) payload.entries[staffId] = blankWeekEntries();
-          payload.entries[staffId][day] = tid;
-
-          if(!payload.assignmentMeta) payload.assignmentMeta = {};
-          payload.assignmentMeta[staffId] = payload.assignmentMeta[staffId] || {};
-          payload.assignmentMeta[staffId][day] = { role, off:true };
-
-          closeModal();
-          renderBuilderGrid(payload);
-          return;
+        let segBText = "";
+        if(c.segBEnabled){
+          const maPresetB = findPreset(payload, c.segB.presetId);
+          segBText = ` + ${c.segB.location} ${maPresetB?.label || ""}`.trim();
         }
 
-        const location = ($("#asLoc").value||"").trim();
-        const providerId = ($("#asProv").value||"").trim();
-        const start = ($("#asStart").value||"").trim();
-        const end = ($("#asEnd").value||"").trim();
-
-        if(!location) return toast("Location is required.");
-        if(!start || !end) return toast("Start and End time are required.");
-        if(isMA && !providerId) return toast("Provider is required for MA.");
-
-        const locObj = LOCATIONS.find(l=>l.code===location);
-        const locLabel = locObj ? locObj.code : location;
-
-        const providerName = providerId
-          ? (payload.providers||[]).find(p=>p.id===providerId)?.name || ""
-          : "";
-
-        const display = buildAssignmentText({
-          role,
-          locationCode: locLabel,
-          providerName,
-          start,
-          end
+        const text = `MA ${provider?.name || ""} • ${segAText}${segBText}`.trim();
+        put(c.maStaffId, day, text, {
+          kind:"MA",
+          providerId: pid,
+          providerName: provider?.name || "",
+          segA: { ...c.segA },
+          segBEnabled: !!c.segBEnabled,
+          segB: { ...c.segB },
         });
+      }
 
-        const tid = ensureTemplate(payload, display);
-
-        if(!payload.entries[staffId]) payload.entries[staffId] = blankWeekEntries();
-        payload.entries[staffId][day] = tid;
-
-        if(!payload.assignmentMeta) payload.assignmentMeta = {};
-        payload.assignmentMeta[staffId] = payload.assignmentMeta[staffId] || {};
-        payload.assignmentMeta[staffId][day] = {
-          role,
-          off:false,
-          location: locLabel,
-          providerId: providerId || null,
-          start,
-          end
-        };
-
-        closeModal();
-        renderBuilderGrid(payload);
-      });
+      // XR assignment text
+      if(c.xrStaffId){
+        const xrPreset = findPreset(payload, c.xrPresetId);
+        const text = `XR ${provider?.name || ""} • ${c.xrLocation} • ${c.xrRoomId} • ${xrPreset?.label || ""}`.trim();
+        put(c.xrStaffId, day, text, {
+          kind:"XR",
+          providerId: pid,
+          providerName: provider?.name || "",
+          location: c.xrLocation,
+          room: c.xrRoomId,
+          presetId: c.xrPresetId
+        });
+      }
     }
-  });
-}
-
-function buildAssignmentText({ role, locationCode, providerName, start, end }){
-  const time = `${start}- ${end}`;
-  if(role === "MA"){
-    return `MA (${locationCode}) ${providerName} ${time}`.trim();
   }
-  const prov = providerName ? `${providerName} ` : "";
-  return `XR (${locationCode}) ${prov}${time}`.trim();
+
+  // Float assignments
+  for(const day of DAYS){
+    const f = payload.floatAssignments?.[day];
+    if(!f) continue;
+
+    if(f.ma?.staffId){
+      const preset = findPreset(payload, f.ma.presetId);
+      const text = `MA FLOAT • ${f.ma.location} • ${preset?.label || ""}`.trim();
+      put(f.ma.staffId, day, text, { kind:"MA", float:true, location:f.ma.location, presetId:f.ma.presetId });
+    }
+
+    if(f.xr?.staffId){
+      const preset = findPreset(payload, f.xr.presetId);
+      const text = `XR FLOAT • ${f.xr.location} • ${f.xr.roomId} • ${preset?.label || ""}`.trim();
+      put(f.xr.staffId, day, text, { kind:"XR", float:true, location:f.xr.location, room:f.xr.roomId, presetId:f.xr.presetId });
+    }
+  }
 }
 
 function ensureTemplate(payload, raw){
-  payload.templates = payload.templates || [];
   const id = idForRaw(raw);
   if(!payload.templates.some(t=>t.id===id)){
-    payload.templates.push({ id, raw, parsed: parseCell(raw) });
+    payload.templates.push({ id, raw });
   }
   return id;
+}
+
+function findPreset(payload, presetId){
+  return (payload.timePresets||[]).find(p=>p.id===presetId) || null;
 }
 
 /* ---------------- Validation ---------------- */
@@ -1214,38 +1720,39 @@ function ensureTemplate(payload, raw){
 function validate(payload){
   const issues = [];
 
-  payload.roster.forEach(r=>{
+  // roster email required for My Schedule
+  (payload.roster||[]).forEach(r=>{
     if(!r.email) issues.push(`${r.name} missing email`);
   });
 
-  payload.roster.forEach(r=>{
-    const e = payload.entries?.[r.id] || {};
-    const metaByDay = payload.assignmentMeta?.[r.id] || {};
-
-    DAYS.forEach(d=>{
-      // OFF is valid, working must have assignment
-      const meta = metaByDay[d];
-      if(meta?.off) return;
-
-      const v = e[d];
-      if(v === undefined || v === null || v === ""){
-        issues.push(`${r.name} missing ${d}`);
+  // Provider schedule must have MA assigned + segA complete each day (unless OFF)
+  (payload.providers||[]).forEach(p=>{
+    for(const day of DAYS){
+      const c = payload.providerAssignments?.[p.id]?.[day];
+      if(!c) { issues.push(`${p.name} missing ${day}`); continue; }
+      if(c.off) continue;
+      if(!c.maStaffId) issues.push(`${p.name} missing MA on ${day}`);
+      if(!c.segA?.location || !c.segA?.presetId) issues.push(`${p.name} missing Segment A on ${day}`);
+      if(c.segBEnabled){
+        if(!c.segB?.location || !c.segB?.presetId) issues.push(`${p.name} missing Segment B on ${day}`);
       }
-    });
+      if(c.xrStaffId){
+        if(!c.xrLocation || !c.xrRoomId || !c.xrPresetId) issues.push(`${p.name} XR incomplete on ${day}`);
+      }
+    }
   });
 
-  // MA provider required when not off
-  payload.roster.forEach(r=>{
-    if((r.role||"MA") !== "MA") return;
-    const metaByDay = payload.assignmentMeta?.[r.id] || {};
-    DAYS.forEach(d=>{
-      const meta = metaByDay[d];
-      if(!meta || meta.off) return;
-      if(!meta.providerId){
-        issues.push(`${r.name} missing Provider on ${d}`);
-      }
-    });
-  });
+  // lock enforcement check (after generation)
+  const seen = {};
+  for(const r of (payload.roster||[])){
+    for(const day of DAYS){
+      const tid = payload.entries?.[r.id]?.[day];
+      if(!tid) continue;
+      const key = `${r.role}:${r.id}:${day}`;
+      if(seen[key]) issues.push(`${r.name} double-booked on ${day}`);
+      seen[key] = true;
+    }
+  }
 
   return issues;
 }
@@ -1259,12 +1766,13 @@ function exportPublishedToCSV(){
   const header = ["TEAM MEMBER", ...DAYS];
   const lines = [header];
 
-  sched.roster.forEach(r=>{
+  const roster = sched.roster.slice().sort((a,b)=>a.name.localeCompare(b.name));
+  roster.forEach(r=>{
     const e = sched.entries?.[r.id] || {};
     const teamLabel = r.role === "XR" ? `(XR) ${r.name}` : r.name;
     const row = [teamLabel, ...DAYS.map(d=>{
       const tid = e[d];
-      return tid ? templateTextById(sched, tid) : "";
+      return tid ? (templateTextById(sched, tid) || "") : "";
     })];
     lines.push(row);
   });
@@ -1274,103 +1782,33 @@ function exportPublishedToCSV(){
   toast("CSV exported.");
 }
 
-/* ---------------- Schedule CSV parsing ---------------- */
-
-function parseScheduleCSV(text){
-  const rows = csvToRows(text);
-
-  const headerIdx = rows.findIndex(r => (r[0]||"").trim().toUpperCase() === "TEAM MEMBER");
-  if(headerIdx === -1) throw new Error("No TEAM MEMBER header found.");
-
-  const header = rows[headerIdx].map(x => (x||"").trim());
-  const dayIdx = {
-    TEAM: 0,
-    Monday: header.findIndex(x=>x.toLowerCase()==="monday"),
-    Tuesday: header.findIndex(x=>x.toLowerCase()==="tuesday"),
-    Wednesday: header.findIndex(x=>x.toLowerCase()==="wednesday"),
-    Thursday: header.findIndex(x=>x.toLowerCase()==="thursday"),
-    Friday: header.findIndex(x=>x.toLowerCase()==="friday"),
-  };
-  if(Object.values(dayIdx).some(i=>i<0)) throw new Error("Missing weekday headers.");
-
-  let weekOf = null;
-  for(let i=headerIdx-1; i>=0; i--){
-    const s = (rows[i][0]||"").trim();
-    const m = s.match(/(\d{2}\/\d{2}\/\d{4})/);
-    if(m){ weekOf = toISODate(m[1]); break; }
-  }
-  if(!weekOf) weekOf = mondayOf(new Date());
-
-  const roster = [];
-  const entries = {};
-  const templateRawSet = new Set();
-
-  let emptyCount = 0;
-  for(let i=headerIdx+1; i<rows.length; i++){
-    const teamCell = (rows[i][dayIdx.TEAM]||"").trim();
-    const anyDay = DAYS.some(d => ((rows[i][dayIdx[d]]||"").trim() !== ""));
-    if(!teamCell && !anyDay){
-      emptyCount++;
-      if(emptyCount >= 3) break;
-      continue;
-    }
-    emptyCount = 0;
-    if(!teamCell) continue;
-
-    const role = teamCell.trim().startsWith("(XR)") ? "XR" : "MA";
-    const name = teamCell.replace(/^\(XR\)\s*/i, "").trim();
-    const id = slug(name);
-
-    roster.push({ id, name, role, email: "" });
-    entries[id] = entries[id] || blankWeekEntries();
-
-    DAYS.forEach(d=>{
-      const raw = (rows[i][dayIdx[d]]||"").trim();
-      if(!raw) { entries[id][d] = null; return; }
-      templateRawSet.add(raw);
-      entries[id][d] = idForRaw(raw);
-    });
-  }
-
-  const templates = Array.from(templateRawSet)
-    .filter(Boolean)
-    .map(raw => ({ id: idForRaw(raw), raw, parsed: parseCell(raw) }));
-
-  // ensure OFF exists
-  if(!templates.some(t=>t.id===idForRaw("OFF"))){
-    templates.push({ id:idForRaw("OFF"), raw:"OFF", parsed: parseCell("OFF") });
-  }
-
-  return { weekOf, roster, templates, entries, providers: [], assignmentMeta: {} };
-}
-
-/* ---------------- Template display ---------------- */
-
-function parseCell(raw){
-  const s = (raw||"").trim();
-  if(!s) return { type:"EMPTY", label:"", site:"", start:"", end:"" };
-  if(s.toUpperCase() === "OFF") return { type:"OFF", label:"OFF", site:"", start:"", end:"" };
-
-  const locMatch = s.match(/\(([A-Z]{2,4})\)/);
-  const site = locMatch ? locMatch[1].trim() : "";
-
-  const timeMatch = s.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
-  const start = timeMatch ? timeMatch[1] : "";
-  const end = timeMatch ? timeMatch[2] : "";
-
-  const upper = s.toUpperCase();
-  const type = upper.startsWith("MA ") ? "MA" : upper.startsWith("XR ") ? "XR" : "ASSIGN";
-
-  return { type, label: s, site, start, end };
-}
+/* ---------------- Template lookup for viewing ---------------- */
 
 function templateTextById(sched, id){
-  const templates = (sched.templates || []);
-  const t = templates.find(x=>x.id===id);
+  const t = (sched.templates||[]).find(x=>x.id===id);
   return t ? (t.raw || "") : "";
 }
 
 /* ---------------- Helpers ---------------- */
+
+function ensureDraftForWeek(weekOf){
+  if(!state.draft || state.draft.weekOf !== weekOf){
+    state.draft = {
+      weekOf,
+      roster: [],
+      providers: [],
+      timePresets: DEFAULT_TIME_PRESETS.map(x=>({...x})),
+      providerAssignments: {},
+      providerDone: {},
+      floatAssignments: defaultFloatAssignments(),
+      templates: [],
+      entries: {},
+      assignmentMeta: {}
+    };
+  }
+  normalizeDraft(state.draft);
+  return state.draft;
+}
 
 function csvToRows(text){
   const lines = text.replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n");
@@ -1401,10 +1839,6 @@ function csvEscape(v){
   const s = (v ?? "").toString();
   if(/[,"\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
   return s;
-}
-function toISODate(mmddyyyy){
-  const [mm,dd,yyyy] = mmddyyyy.split("/");
-  return `${yyyy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`;
 }
 
 function mondayOf(date){
