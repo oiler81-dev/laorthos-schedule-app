@@ -1,257 +1,445 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>LA Orthos | MA/XR Schedule</title>
-  <link rel="stylesheet" href="./styles.css" />
-</head>
-<body>
-  <header class="topbar">
-    <div class="brand">
-      <img class="logoImg" src="./assets/laorthos-logo.png" alt="LA Orthos" />
-      <div class="brandText">
-        <div class="brandTitle">MA/XR Schedule</div>
-        <div class="brandSub" id="authLine">Loading…</div>
-      </div>
-    </div>
+:root{
+  --bg: #0b0f18;
+  --panel: rgba(255,255,255,.06);
+  --stroke: rgba(255,255,255,.12);
 
-    <nav class="tabs" role="tablist" aria-label="Schedule views">
-      <button class="tab is-active" data-view="my" role="tab" aria-selected="true">My Schedule</button>
-      <button class="tab" data-view="everyone" role="tab" aria-selected="false">Everyone</button>
-      <button class="tab" data-view="builder" role="tab" aria-selected="false" id="builderTab" style="display:none;">Builder</button>
-    </nav>
-  </header>
+  --text: rgba(255,255,255,.92);
+  --muted: rgba(255,255,255,.72);
 
-  <main class="wrap">
-    <section id="toast" class="toast" hidden></section>
+  --navy: #0f2346;
+  --gold: #c8a24b;
+  --good: #1f9d55;
+  --bad: #d14343;
 
-    <!-- MY -->
-    <section id="view-my" class="view">
-      <div class="panel">
-        <div class="panelHead">
-          <h1>My Schedule</h1>
-          <div class="panelActions">
-            <button class="btn btnGhost" id="btnLogin">Login</button>
-            <button class="btn btnGhost" id="btnLogout">Logout</button>
-          </div>
-        </div>
+  --chip: rgba(200,162,75,.18);
+  --chipStroke: rgba(200,162,75,.35);
 
-        <div class="row">
-          <div class="field">
-            <label>Week of (Mon)</label>
-            <select id="weekPickMy"></select>
-          </div>
-          <div class="field grow">
-            <label>Matched staff</label>
-            <div class="pill" id="myMatchPill">—</div>
-          </div>
-        </div>
+  --shadow: 0 10px 40px rgba(0,0,0,.35);
+  --radius: 16px;
+}
 
-        <div class="cards">
-          <div class="card">
-            <div class="cardTitle">Today</div>
-            <div id="todayCard" class="cardBody muted">Loading…</div>
-          </div>
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  background: radial-gradient(1200px 700px at 15% 10%, rgba(200,162,75,.10), transparent 55%),
+              radial-gradient(900px 600px at 90% 0%, rgba(15,35,70,.35), transparent 60%),
+              var(--bg);
+  color: var(--text);
+}
 
-          <div class="card">
-            <div class="cardTitle">This Week</div>
-            <div id="weekCards" class="weekCards"></div>
-          </div>
-        </div>
-      </div>
-    </section>
+.wrap{
+  max-width: 1320px;
+  margin: 18px auto 60px;
+  padding: 0 14px;
+}
 
-    <!-- EVERYONE -->
-    <section id="view-everyone" class="view" hidden>
-      <div class="panel">
-        <div class="panelHead">
-          <h1>Everyone</h1>
-          <div class="panelActions">
-            <button class="btn btnGhost" id="btnPrint">Print</button>
-            <button class="btn btnGhost" id="btnExportCSV">Export CSV</button>
-          </div>
-        </div>
+.topbar{
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(11,15,24,.92), rgba(11,15,24,.70));
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  backdrop-filter: blur(10px);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+}
 
-        <div class="filters">
-          <div class="field">
-            <label>Week of (Mon)</label>
-            <select id="weekPickEveryone"></select>
-          </div>
-          <div class="field">
-            <label>Role</label>
-            <select id="roleFilter">
-              <option value="ALL">All</option>
-              <option value="MA">MA</option>
-              <option value="XR">XR</option>
-            </select>
-          </div>
-          <div class="field grow">
-            <label>Search</label>
-            <input id="searchFilter" type="text" placeholder="Type a name…" />
-          </div>
-        </div>
+.brand{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  min-width: 240px;
+}
+.logoImg{
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 10px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.08);
+}
+.brandTitle{ font-weight: 900; letter-spacing: .2px; }
+.brandSub{ font-size: 12px; color: var(--muted); margin-top: 1px; }
 
-        <div class="tableWrap">
-          <table class="grid" id="everyoneGrid">
-            <thead></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+.tabs{ display:flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.tab{
+  appearance:none;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 999px;
+  cursor:pointer;
+  font-weight: 800;
+  font-size: 13px;
+}
+.tab.is-active{
+  background: rgba(200,162,75,.18);
+  border-color: rgba(200,162,75,.35);
+}
 
-    <!-- BUILDER -->
-    <section id="view-builder" class="view" hidden>
-      <div class="panel">
-        <div class="panelHead">
-          <h1>Builder (Provider-driven)</h1>
-          <div class="panelActions">
-            <button class="btn btnGhost" id="btnImportStaffCSV">Import Staff CSV</button>
-            <button class="btn btnGhost" id="btnLoadStaffFromRepo">Load Staff from Repo</button>
+.panel{
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.panelHead{
+  padding: 16px 16px 12px;
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.panelHead h1{ margin:0; font-size: 18px; letter-spacing: .2px; }
+.panelActions{ display:flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
-            <button class="btn btnGhost" id="btnImportProvidersCSV">Import Providers CSV</button>
-            <button class="btn btnGhost" id="btnLoadProvidersFromRepo">Load Providers from Repo</button>
+.builderTop{
+  padding: 12px 16px 14px;
+  display:flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
 
-            <button class="btn btnGhost" id="btnLoadDraft">Load Draft</button>
-            <button class="btn btnGhost" id="btnLoadPublished">Load Published</button>
-            <button class="btn" id="btnSaveDraft">Save Draft</button>
-            <button class="btn" id="btnPublish">Publish</button>
-          </div>
-        </div>
+.row{ display:flex; gap: 12px; align-items:end; padding: 0 16px 16px; flex-wrap: wrap; }
+.grow{ flex: 1 1 auto; min-width: 220px; }
 
-        <div class="builderTop">
-          <div class="field">
-            <label>Week of (Mon)</label>
-            <select id="weekPickBuilder"></select>
-          </div>
-          <div class="field grow">
-            <label>Status</label>
-            <div class="pill" id="builderStatus">—</div>
-          </div>
-          <div class="field">
-            <label>Validate</label>
-            <button class="btn btnGhost" id="btnValidate">Run</button>
-          </div>
-          <div class="field">
-            <label>Reset</label>
-            <button class="btn btnGhost" id="btnClearWeek">Clear Draft Week</button>
-          </div>
-        </div>
+.field{ display:flex; flex-direction:column; gap: 6px; min-width: 180px; }
+label{ font-size: 12px; color: var(--muted); font-weight: 800; }
+input, select{
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(0,0,0,.18);
+  color: var(--text);
+  padding: 0 12px;
+  outline: none;
+}
+input::placeholder{ color: rgba(255,255,255,.45); }
 
-        <div class="builderShell">
-          <!-- LEFT: Providers -->
-          <aside class="side">
-            <div class="sideHead">
-              <div>
-                <div class="sideTitle">Providers</div>
-                <div class="muted small">Green = complete</div>
-              </div>
-              <div class="sideActions">
-                <button class="btn btnSmall btnGhost" id="btnAddProvider">Add</button>
-              </div>
-            </div>
+.pill{
+  height: 42px;
+  display:flex;
+  align-items:center;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(0,0,0,.16);
+  color: var(--text);
+  font-weight: 800;
+  font-size: 13px;
+}
 
-            <div class="field" style="margin-top:10px">
-              <label>Search provider</label>
-              <input id="providerSearch" type="text" placeholder="Type to filter…" />
-            </div>
+.btn{
+  height: 42px;
+  border-radius: 12px;
+  padding: 0 12px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: linear-gradient(180deg, rgba(200,162,75,.20), rgba(200,162,75,.12));
+  color: var(--text);
+  font-weight: 900;
+  cursor:pointer;
+}
+.btnGhost{ background: rgba(255,255,255,.04); }
+.btnSmall{ height: 34px; padding: 0 10px; border-radius: 10px; font-size: 12px; }
+.iconBtn{
+  height: 34px; width: 34px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.04);
+  cursor:pointer;
+  color: var(--text);
+}
 
-            <div class="providerList" id="providerList"></div>
+.toast{
+  position: sticky;
+  top: 70px;
+  z-index: 5;
+  margin: 12px 12px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0,0,0,.45);
+  border: 1px solid rgba(255,255,255,.12);
+  font-weight: 900;
+  color: var(--text);
+}
 
-            <div class="divider"></div>
+.cards{ padding: 0 16px 16px; display:grid; grid-template-columns: 1fr; gap: 12px; }
+.card{
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.cardTitle{ font-weight: 900; margin-bottom: 8px; }
+.cardBody{ min-height: 54px; }
+.weekCards{ display:grid; gap: 10px; }
+.dayCard{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(0,0,0,.18);
+  border: 1px solid rgba(255,255,255,.10);
+}
+.dayName{ font-weight: 900; }
+.dayValue{ font-weight: 900; color: rgba(255,255,255,.92); }
 
-            <div class="sideHead" style="margin-top:0">
-              <div>
-                <div class="sideTitle">Float Pool</div>
-                <div class="muted small">Assign only after all providers covered</div>
-              </div>
-            </div>
-            <div class="floatBox" id="floatBox"></div>
-          </aside>
+.filters{
+  padding: 0 16px 16px;
+  display:flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items:end;
+}
 
-          <!-- RIGHT: Provider editor -->
-          <section class="mainPane">
-            <div class="mainHead">
-              <div>
-                <div class="mainTitle" id="activeProviderTitle">Select a provider</div>
-                <div class="muted small" id="activeProviderSub">Then assign Mon–Fri</div>
-              </div>
-              <div class="mainActions">
-                <button class="btn btnGhost" id="btnProviderMarkDone">Mark Done</button>
-                <button class="btn btnGhost" id="btnProviderMarkNotDone">Mark Not Done</button>
-              </div>
-            </div>
+.tableWrap{
+  width: 100%;
+  overflow:auto;
+  border-top: 1px solid rgba(255,255,255,.08);
+  max-height: 60vh;
+}
+.grid{ width: 100%; border-collapse: collapse; }
+.grid th, .grid td{
+  padding: 12px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  vertical-align: top;
+}
+.grid th{
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(11,15,24,.92);
+  text-align: left;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 900;
+}
+.nameCell{ font-weight: 900; }
+.roleTag{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  background: var(--chip);
+  border: 1px solid var(--chipStroke);
+  color: rgba(255,255,255,.92);
+  margin-left: 8px;
+}
+.small{ font-size: 12px; }
+.muted{ color: var(--muted); }
 
-            <div class="grid2">
-              <div class="card soft">
-                <div class="cardTitleRow">
-                  <div class="cardTitle">Staff Roster</div>
-                  <button class="btn btnSmall btnGhost" id="btnAddStaff">Add</button>
-                </div>
-                <div class="muted small" style="margin-top:6px">
-                  MA and XR are locked per-day across providers.
-                </div>
-                <div class="rosterList" id="rosterEmailList"></div>
-              </div>
+.builderShell{
+  display:grid;
+  grid-template-columns: 320px 1fr;
+  gap: 12px;
+  padding: 12px;
+}
 
-              <div class="card soft">
-                <div class="cardTitleRow">
-                  <div class="cardTitle">Time Presets</div>
-                  <button class="btn btnSmall btnGhost" id="btnAddTimePreset">Add</button>
-                </div>
-                <div class="muted small" style="margin-top:6px">
-                  Times are presets only (no free text).
-                </div>
-                <div class="presetList" id="presetList"></div>
-              </div>
-            </div>
+.side{
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-height: 70vh;
+}
+.sideHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+}
+.sideTitle{ font-weight: 900; }
+.providerList{
+  margin-top: 10px;
+  display:flex;
+  flex-direction:column;
+  gap: 8px;
+  max-height: 46vh;
+  overflow:auto;
+  padding-right: 4px;
+}
+.providerItem{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.14);
+  cursor:pointer;
+}
+.providerItem.is-active{
+  border-color: rgba(200,162,75,.35);
+  background: rgba(200,162,75,.10);
+}
+.providerName{ font-weight: 900; line-height: 1.1; }
+.providerMeta{ font-size: 12px; color: var(--muted); margin-top: 4px; }
+.dot{
+  width: 10px; height: 10px; border-radius: 999px;
+  background: rgba(255,255,255,.25);
+  border: 1px solid rgba(255,255,255,.25);
+}
+.dot.good{ background: rgba(31,157,85,.90); border-color: rgba(31,157,85,1); }
+.dot.bad{ background: rgba(209,67,67,.90); border-color: rgba(209,67,67,1); }
 
-            <div class="card soft" style="margin-top:14px">
-              <div class="cardTitleRow">
-                <div class="cardTitle">Provider Schedule (Mon–Fri)</div>
-                <div class="muted small">Per day: Location + Time first, then MA. Segment B optional.</div>
-              </div>
+.divider{ height: 1px; background: rgba(255,255,255,.10); margin: 12px 0; }
 
-              <div class="tableWrap">
-                <table class="grid" id="providerWeekGrid">
-                  <thead></thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
+.floatBox{ display:flex; flex-direction:column; gap: 10px; margin-top: 10px; }
+.floatRow{
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.14);
+  display:flex;
+  flex-direction:column;
+  gap: 8px;
+}
+.floatRowTitle{ font-weight: 900; }
 
-            <div class="card soft" style="margin-top:14px">
-              <div class="cardTitleRow">
-                <div class="cardTitle">Locations</div>
-                <div class="muted small">Codes used in output</div>
-              </div>
-              <div class="locationList" id="locationList"></div>
-            </div>
+.mainPane{
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-height: 70vh;
+}
+.mainHead{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 10px;
+  padding: 6px 4px 10px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  margin-bottom: 12px;
+}
+.mainTitle{ font-weight: 1000; font-size: 16px; }
+.mainActions{ display:flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
-          </section>
-        </div>
-      </div>
-    </section>
-  </main>
+.grid2{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.soft{ background: rgba(0,0,0,.12); }
+.cardTitleRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+}
 
-  <!-- Modal -->
-  <div class="modal" id="modal" hidden>
-    <div class="modalBackdrop" data-close="1"></div>
-    <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <div class="modalHead">
-        <div id="modalTitle" class="modalTitle">Modal</div>
-        <button class="iconBtn" data-close="1" aria-label="Close">✕</button>
-      </div>
-      <div class="modalBody" id="modalBody"></div>
-      <div class="modalFoot" id="modalFoot"></div>
-    </div>
-  </div>
+.rosterList{
+  margin-top: 10px;
+  display:flex;
+  flex-direction:column;
+  gap: 10px;
+  max-height: 360px;
+  overflow:auto;
+  padding-right: 4px;
+}
+.rosterItem{
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.14);
+}
+.rosterTop{ display:flex; align-items:flex-start; justify-content:space-between; gap: 10px; }
+.rosterName{ font-weight: 900; }
+.lockPill{
+  display:inline-flex;
+  gap: 6px;
+  align-items:center;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(0,0,0,.14);
+  color: var(--muted);
+  margin-top: 6px;
+}
 
-  <!-- Hidden file inputs -->
-  <input id="staffFile" type="file" accept=".csv,text/csv" hidden />
-  <input id="providersFile" type="file" accept=".csv,text/csv" hidden />
+.presetList{
+  margin-top: 10px;
+  display:flex;
+  flex-direction:column;
+  gap: 8px;
+  max-height: 360px;
+  overflow:auto;
+  padding-right: 4px;
+}
+.presetItem{
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.14);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap: 10px;
+}
+.presetName{ font-weight: 900; }
 
-  <script src="./app.js"></script>
-</body>
-</html>
+.locationList{ display:flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.locationChip{
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.14);
+  font-weight: 900;
+}
+.locationChip span{ color: var(--muted); font-weight: 900; font-size: 12px; }
+
+.modal{ position: fixed; inset: 0; z-index: 50; }
+.modalBackdrop{ position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+.modalCard{
+  position: relative;
+  margin: 8vh auto;
+  width: min(760px, calc(100vw - 24px));
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(11,15,24,.98);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.modalHead{
+  padding: 12px 14px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.modalTitle{ font-weight: 1000; }
+.modalBody{ padding: 14px; }
+.modalFoot{
+  padding: 12px 14px;
+  display:flex;
+  gap: 10px;
+  justify-content:flex-end;
+  border-top: 1px solid rgba(255,255,255,.08);
+  flex-wrap: wrap;
+}
+.hint{ font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+@media (max-width: 980px){
+  .builderShell{ grid-template-columns: 1fr; }
+  .side{ min-height: auto; }
+  .providerList{ max-height: 280px; }
+  .grid2{ grid-template-columns: 1fr; }
+  .tableWrap{ max-height: 55vh; }
+}
