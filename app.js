@@ -1,4 +1,5 @@
 const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
+
 const DEFAULTS_PK = "__defaults__";
 const DEFAULT_ROSTER_RK = "roster";
 const DEFAULT_PROVIDERS_RK = "providers";
@@ -40,7 +41,6 @@ const state = {
   published: null,
   draft: null,
 
-  // Builder selection
   activeProviderId: null,
   providerSearch: "",
 };
@@ -78,6 +78,7 @@ async function loadAuth(){
     : `Not logged in`;
 
   $("#builderTab").style.display = state.auth.editor ? "" : "none";
+
   $("#btnLogin").style.display = state.auth.email ? "none" : "";
   $("#btnLogout").style.display = state.auth.email ? "" : "none";
 }
@@ -118,24 +119,6 @@ async function loadDraft(weekOf){
     state.draft = data.data || null;
   }catch{
     state.draft = null;
-  }
-}
-
-async function loadDefaults(kind){
-  const rk =
-    kind === "roster" ? DEFAULT_ROSTER_RK :
-    kind === "providers" ? DEFAULT_PROVIDERS_RK :
-    kind === "timepresets" ? DEFAULT_PRESETS_RK :
-    null;
-  if(!rk) return null;
-
-  try{
-    const res = await fetch(`./api/schedule?weekOf=${encodeURIComponent(DEFAULTS_PK)}&mode=${encodeURIComponent(rk)}`, { cache: "no-store" });
-    if(!res.ok) return null;
-    const data = await res.json();
-    return data.data || null;
-  }catch{
-    return null;
   }
 }
 
@@ -195,9 +178,9 @@ function setAllWeekPickers(week){
 async function changeWeek(week){
   state.currentWeekOf = week;
   setAllWeekPickers(week);
+
   await loadPublished(week);
 
-  // keep draft week aligned if already loaded
   if(state.draft && state.draft.weekOf !== week){
     state.draft = null;
     state.activeProviderId = null;
@@ -332,8 +315,6 @@ function wireButtons(){
   $("#btnSaveDraft").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftForWeek(state.currentWeekOf);
-
-    // generate staff-view from provider-driven before saving
     rebuildStaffViewFromProviderDriven(payload);
 
     try{
@@ -348,7 +329,6 @@ function wireButtons(){
   $("#btnPublish").addEventListener("click", async ()=>{
     if(!state.auth.editor) return toast("Not authorized.");
     const payload = ensureDraftForWeek(state.currentWeekOf);
-
     rebuildStaffViewFromProviderDriven(payload);
 
     const issues = validate(payload);
@@ -447,7 +427,6 @@ function normalizeDraft(d){
 }
 
 function defaultFloatAssignments(){
-  // per day: floatMA staffId + location + preset, floatXR staffId + location + preset + room
   const o = {};
   DAYS.forEach(d=>{
     o[d] = {
@@ -468,28 +447,32 @@ function ensureProviderAssignmentsScaffold(payload){
     if(!payload.providerAssignments[p.id]){
       payload.providerAssignments[p.id] = {};
       DAYS.forEach(d=>{
-        payload.providerAssignments[p.id][d] = {
-          off: false,
-          maStaffId: null,
-          // segment A always exists
-          segA: { location:"", presetId:"" },
-          // segment B optional
-          segBEnabled: false,
-          segB: { location:"", presetId:"" },
-          xrStaffId: null,
-          xrLocation: "",
-          xrRoomId: "",
-          xrPresetId: ""
-        };
+        payload.providerAssignments[p.id][d] = defaultProviderDayCell();
       });
     }
     if(payload.providerDone[p.id] === undefined) payload.providerDone[p.id] = false;
   });
 
-  // keep activeProviderId valid
   if(state.activeProviderId && !(payload.providers||[]).some(p=>p.id===state.activeProviderId)){
     state.activeProviderId = null;
   }
+}
+
+function defaultProviderDayCell(){
+  return {
+    off:false,
+    // NEW UX: location + time first, then MA
+    maStaffId:null,
+    locA: "",
+    timeA: "",
+    segBEnabled:false,
+    locB: "",
+    timeB: "",
+    xrStaffId:null,
+    xrLocation:"",
+    xrRoomId:"",
+    xrTime:""
+  };
 }
 
 /* ---------------- Rendering ---------------- */
@@ -583,7 +566,7 @@ function renderEveryone(){
   thead.innerHTML = `
     <tr>
       <th style="min-width:220px;text-align:left;">Team Member</th>
-      ${DAYS.map(d=>`<th style="min-width:240px;text-align:left;">${d}</th>`).join("")}
+      ${DAYS.map(d=>`<th style="min-width:260px;text-align:left;">${d}</th>`).join("")}
     </tr>
   `;
 
@@ -605,7 +588,7 @@ function renderEveryone(){
   }).join("");
 }
 
-/* ---------------- Builder (provider-driven) ---------------- */
+/* ---------------- Builder ---------------- */
 
 function renderBuilder(){
   if(!state.auth.editor){
@@ -627,7 +610,6 @@ function renderBuilder(){
     normalizeDraft(state.draft);
   }
   if(!state.draft){
-    // start empty but scaffolded
     state.draft = {
       weekOf: week,
       roster: [],
@@ -636,8 +618,6 @@ function renderBuilder(){
       providerAssignments: {},
       providerDone: {},
       floatAssignments: defaultFloatAssignments(),
-
-      // staff-view fields (generated on save/publish)
       templates: [],
       entries: {},
       assignmentMeta: {}
@@ -657,13 +637,12 @@ function renderBuilder(){
   renderFloatPool(payload);
 }
 
-/* Provider list left */
+/* Provider list */
 
 function renderProviderList(payload){
   const list = $("#providerList");
   const providers = (payload.providers||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
   const q = (state.providerSearch||"").toLowerCase();
-
   const filtered = providers.filter(p => !q ? true : p.name.toLowerCase().includes(q));
 
   if(!filtered.length){
@@ -674,14 +653,13 @@ function renderProviderList(payload){
   list.innerHTML = filtered.map(p=>{
     const done = isProviderComplete(payload, p.id) || !!payload.providerDone[p.id];
     const isActive = state.activeProviderId === p.id;
-    const dotClass = done ? "good" : "bad";
     return `
       <div class="providerItem ${isActive ? "is-active":""}" data-provider="${escapeHtml(p.id)}">
         <div>
           <div class="providerName">${escapeHtml(p.name)}</div>
           <div class="providerMeta">${done ? "Complete" : "Incomplete"}</div>
         </div>
-        <div class="dot ${dotClass}"></div>
+        <div class="dot ${done ? "good" : "bad"}"></div>
       </div>
     `;
   }).join("");
@@ -695,8 +673,7 @@ function renderProviderList(payload){
   });
 }
 
-/* Active provider editor */
-
+/* Active provider table */
 function renderActiveProvider(payload){
   const title = $("#activeProviderTitle");
   const sub = $("#activeProviderSub");
@@ -719,56 +696,37 @@ function renderActiveProvider(payload){
   }
 
   title.textContent = provider.name;
-  sub.textContent = `Assign MA + Location(s) + Time(s), plus XR room if needed.`;
+  sub.textContent = `Per day: Location + Time first, then MA. Segment B optional.`;
 
   thead.innerHTML = `
     <tr>
       <th style="min-width:120px">Day</th>
+      <th style="min-width:280px">Provider Location + Time</th>
       <th style="min-width:210px">MA</th>
-      <th style="min-width:260px">Segment A (Location + Time)</th>
-      <th style="min-width:310px">Segment B (optional)</th>
-      <th style="min-width:280px">XR Room (optional)</th>
+      <th style="min-width:320px">Segment B (optional)</th>
+      <th style="min-width:320px">XR Room (optional)</th>
       <th style="min-width:140px">Actions</th>
     </tr>
   `;
 
-  const locks = computeDayLocks(payload); // {day:{MA:Set, XR:Set}}
-
   tbody.innerHTML = DAYS.map(day=>{
-    const cell = payload.providerAssignments[provider.id][day];
+    const c = payload.providerAssignments[provider.id][day];
 
-    const maName = cell.off ? "OFF" : staffLabel(payload, cell.maStaffId, "MA");
-    const segA = cell.off ? "—" : segmentLabel(payload, cell.segA);
-    const segB = cell.off ? "—" : (cell.segBEnabled ? segmentLabel(payload, cell.segB) : "—");
-    const xr = cell.off ? "—" : xrLabel(payload, cell);
+    const primary = c.off ? "OFF" : primaryLabel(payload, c);
+    const maName = c.off ? "—" : staffLabel(payload, c.maStaffId, "MA");
+    const segB = c.off ? "—" : segBLabel(payload, c);
 
-    const maLockedText = cell.maStaffId ? lockTextForStaffDay(payload, cell.maStaffId, day, provider.id, "MA") : "";
-    const xrLockedText = cell.xrStaffId ? lockTextForStaffDay(payload, cell.xrStaffId, day, provider.id, "XR") : "";
+    const xr = c.off ? "—" : xrLabel(payload, c);
 
     const done = isProviderCompleteDay(payload, provider.id, day);
 
     return `
       <tr>
         <td style="font-weight:900">${day} ${done ? `<span class="roleTag" style="margin-left:8px; border-color: rgba(31,157,85,.7); background: rgba(31,157,85,.18)">Done</span>` : ""}</td>
-
-        <td>
-          <div style="font-weight:900">${escapeHtml(maName)}</div>
-          ${maLockedText ? `<div class="muted small" style="margin-top:6px">${escapeHtml(maLockedText)}</div>` : ""}
-        </td>
-
-        <td>
-          <div style="font-weight:900">${escapeHtml(segA)}</div>
-        </td>
-
-        <td>
-          <div style="font-weight:900">${escapeHtml(segB)}</div>
-        </td>
-
-        <td>
-          <div style="font-weight:900">${escapeHtml(xr)}</div>
-          ${xrLockedText ? `<div class="muted small" style="margin-top:6px">${escapeHtml(xrLockedText)}</div>` : ""}
-        </td>
-
+        <td><div style="font-weight:900">${escapeHtml(primary)}</div></td>
+        <td><div style="font-weight:900">${escapeHtml(maName)}</div></td>
+        <td><div style="font-weight:900">${escapeHtml(segB)}</div></td>
+        <td><div style="font-weight:900">${escapeHtml(xr)}</div></td>
         <td>
           <button class="btn btnSmall btnGhost" data-edit="${provider.id}" data-day="${day}">Edit</button>
           <button class="btn btnSmall btnGhost" data-clear="${provider.id}" data-day="${day}">Clear</button>
@@ -796,32 +754,311 @@ function renderActiveProvider(payload){
   });
 }
 
-function defaultProviderDayCell(){
-  return {
-    off:false,
-    maStaffId:null,
-    segA:{ location:"", presetId:"" },
-    segBEnabled:false,
-    segB:{ location:"", presetId:"" },
-    xrStaffId:null,
-    xrLocation:"",
-    xrRoomId:"",
-    xrPresetId:""
-  };
+function primaryLabel(payload, c){
+  if(!c.locA || !c.timeA) return "—";
+  const p = findPreset(payload, c.timeA);
+  return `${c.locA} • ${p ? p.label : ""}`.trim();
+}
+function segBLabel(payload, c){
+  if(!c.segBEnabled) return "—";
+  const p = findPreset(payload, c.timeB);
+  if(!c.locB || !c.timeB) return "—";
+  return `${c.locB} • ${p ? p.label : ""}`.trim();
 }
 
-/* Float pool */
+/* ---------------- Provider day modal: LOCATION + TIME first, then MA ---------------- */
+
+function openProviderDayModal(payload, providerId, day){
+  const provider = payload.providers.find(p=>p.id===providerId);
+  if(!provider) return;
+
+  openModal({
+    title: `${provider.name} • ${day}`,
+    body: `
+      <div class="field" style="min-width:100%">
+        <label>Status</label>
+        <select id="pStatus">
+          <option value="WORK" ${!payload.providerAssignments[providerId][day].off?"selected":""}>Working</option>
+          <option value="OFF" ${payload.providerAssignments[providerId][day].off?"selected":""}>OFF</option>
+        </select>
+        <div class="hint">OFF clears assignments for this provider/day.</div>
+      </div>
+
+      <div id="pWork">
+        <div class="row" style="padding:0; margin-top:12px; gap:12px">
+          <div class="field grow" style="min-width:240px">
+            <label>Provider Location (required)</label>
+            <select id="pLocA">
+              ${locationOptionsHTML(payload.providerAssignments[providerId][day].locA)}
+            </select>
+          </div>
+
+          <div class="field" style="min-width:220px">
+            <label>Provider Time (required)</label>
+            <select id="pTimeA">
+              ${presetOptions(payload, payload.providerAssignments[providerId][day].timeA)}
+            </select>
+          </div>
+
+          <div class="field grow" style="min-width:240px">
+            <label>MA (required)</label>
+            <select id="pMA"></select>
+            <div class="hint">Once assigned, MA is locked for this day across other providers.</div>
+          </div>
+        </div>
+
+        <div class="field" style="min-width:100%; margin-top:12px">
+          <label>Two locations same day?</label>
+          <select id="pSegBEnabled">
+            <option value="NO" ${!payload.providerAssignments[providerId][day].segBEnabled?"selected":""}>No</option>
+            <option value="YES" ${payload.providerAssignments[providerId][day].segBEnabled?"selected":""}>Yes (Segment B)</option>
+          </select>
+          <div class="hint">Use Segment B when provider moves locations same day. MA follows provider.</div>
+        </div>
+
+        <div id="pSegBRow" class="row" style="padding:0; margin-top:12px; gap:12px">
+          <div class="field grow" style="min-width:240px">
+            <label>Segment B Location (required if enabled)</label>
+            <select id="pLocB">${locationOptionsHTML(payload.providerAssignments[providerId][day].locB)}</select>
+          </div>
+          <div class="field" style="min-width:220px">
+            <label>Segment B Time (required if enabled)</label>
+            <select id="pTimeB">${presetOptions(payload, payload.providerAssignments[providerId][day].timeB)}</select>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="row" style="padding:0; margin-top:12px; gap:12px">
+          <div class="field grow" style="min-width:240px">
+            <label>XR Staff (optional)</label>
+            <select id="pXR"></select>
+          </div>
+
+          <div class="field grow" style="min-width:240px">
+            <label>XR Location</label>
+            <select id="pXRLoc">${locationOptionsHTML(payload.providerAssignments[providerId][day].xrLocation)}</select>
+          </div>
+
+          <div class="field" style="min-width:200px">
+            <label>XR Room</label>
+            <select id="pXRRoom">${xrRoomOptions(payload.providerAssignments[providerId][day].xrRoomId)}</select>
+          </div>
+
+          <div class="field" style="min-width:220px">
+            <label>XR Time</label>
+            <select id="pXRTime">${presetOptions(payload, payload.providerAssignments[providerId][day].xrTime)}</select>
+          </div>
+        </div>
+      </div>
+    `,
+    foot: `
+      <button class="btn btnGhost" data-close="1">Cancel</button>
+      <button class="btn btnGhost" id="pClear">Clear Day</button>
+      <button class="btn" id="pSave">Save</button>
+    `,
+    onAfter(){
+      const c = payload.providerAssignments[providerId][day];
+
+      const statusSel = $("#pStatus");
+      const workWrap = $("#pWork");
+      const segBEnabledSel = $("#pSegBEnabled");
+      const segBRow = $("#pSegBRow");
+
+      const locA = $("#pLocA");
+      const timeA = $("#pTimeA");
+      const maSel = $("#pMA");
+
+      const xrSel = $("#pXR");
+
+      // Populate MA/XR dropdowns with lock enforcement,
+      // but do it *after* modal is visible so we can react to location/time changes if needed.
+      const refreshStaffOptions = ()=>{
+        maSel.innerHTML = staffOptions(payload, "MA", c.maStaffId, day, providerId);
+        xrSel.innerHTML = staffOptions(payload, "XR", c.xrStaffId, day, providerId, true);
+      };
+      refreshStaffOptions();
+
+      const sync = ()=>{
+        const off = statusSel.value === "OFF";
+        workWrap.style.display = off ? "none" : "";
+        segBRow.style.display = (segBEnabledSel.value === "YES") ? "" : "none";
+      };
+      statusSel.addEventListener("change", sync);
+      segBEnabledSel.addEventListener("change", sync);
+      sync();
+
+      $("#pClear").addEventListener("click", ()=>{
+        payload.providerAssignments[providerId][day] = defaultProviderDayCell();
+        payload.providerDone[providerId] = false;
+        closeModal();
+        renderProviderList(payload);
+        renderActiveProvider(payload);
+        renderFloatPool(payload);
+      });
+
+      $("#pSave").addEventListener("click", ()=>{
+        const off = (statusSel.value === "OFF");
+        if(off){
+          payload.providerAssignments[providerId][day] = defaultProviderDayCell();
+          payload.providerAssignments[providerId][day].off = true;
+          payload.providerDone[providerId] = false;
+          closeModal();
+          renderProviderList(payload);
+          renderActiveProvider(payload);
+          renderFloatPool(payload);
+          return;
+        }
+
+        // LOCATION + TIME first
+        const newLocA = (locA.value||"").trim();
+        const newTimeA = (timeA.value||"").trim();
+        if(!newLocA) return toast("Provider location is required.");
+        if(!newTimeA) return toast("Provider time is required.");
+
+        // Then MA
+        const newMA = (maSel.value||"").trim() || null;
+        if(!newMA) return toast("MA is required.");
+
+        // Lock enforcement
+        if(isStaffLockedForDay(payload, newMA, day, "MA", providerId)){
+          return toast("That MA is already assigned to another provider for this day.");
+        }
+
+        const segBEnabled = (segBEnabledSel.value === "YES");
+        const newLocB = (segBEnabled ? ($("#pLocB").value||"").trim() : "");
+        const newTimeB = (segBEnabled ? ($("#pTimeB").value||"").trim() : "");
+        if(segBEnabled){
+          if(!newLocB) return toast("Segment B location is required.");
+          if(!newTimeB) return toast("Segment B time is required.");
+        }
+
+        const newXR = ($("#pXR").value||"").trim() || null;
+        const newXRLoc = ($("#pXRLoc").value||"").trim();
+        const newXRRoom = ($("#pXRRoom").value||"").trim();
+        const newXRTime = ($("#pXRTime").value||"").trim();
+
+        if(newXR){
+          if(isStaffLockedForDay(payload, newXR, day, "XR", providerId)){
+            return toast("That XR staff is already assigned to another provider for this day.");
+          }
+          if(!newXRLoc || !newXRRoom || !newXRTime){
+            return toast("XR requires location + room + time.");
+          }
+        }
+
+        payload.providerAssignments[providerId][day] = {
+          off:false,
+          maStaffId: newMA,
+          locA: newLocA,
+          timeA: newTimeA,
+          segBEnabled,
+          locB: newLocB,
+          timeB: newTimeB,
+          xrStaffId: newXR,
+          xrLocation: newXR ? newXRLoc : "",
+          xrRoomId: newXR ? newXRRoom : "",
+          xrTime: newXR ? newXRTime : ""
+        };
+
+        closeModal();
+        renderProviderList(payload);
+        renderActiveProvider(payload);
+        renderFloatPool(payload);
+      });
+    }
+  });
+}
+
+/* ---------------- Completion rules ---------------- */
+
+function isProviderComplete(payload, providerId){
+  return DAYS.every(d => isProviderCompleteDay(payload, providerId, d));
+}
+
+function isProviderCompleteDay(payload, providerId, day){
+  const c = payload.providerAssignments?.[providerId]?.[day];
+  if(!c) return false;
+  if(c.off) return true;
+
+  // Must have provider location+time and MA
+  if(!c.locA || !c.timeA) return false;
+  if(!c.maStaffId) return false;
+
+  if(c.segBEnabled){
+    if(!c.locB || !c.timeB) return false;
+  }
+
+  if(c.xrStaffId){
+    if(!c.xrLocation || !c.xrRoomId || !c.xrTime) return false;
+  }
+  return true;
+}
+
+function computeAllProvidersCoveredByDay(payload){
+  const out = {};
+  const providers = payload.providers || [];
+  DAYS.forEach(day=>{
+    out[day] = providers.every(p => isProviderCompleteDay(payload, p.id, day));
+  });
+  return out;
+}
+
+/* ---------------- Locks (Safeguard) ---------------- */
+
+function computeDayLocks(payload){
+  const locks = {};
+  DAYS.forEach(d=>{
+    locks[d] = { MA: new Set(), XR: new Set() };
+  });
+
+  for(const pid of Object.keys(payload.providerAssignments||{})){
+    for(const day of DAYS){
+      const c = payload.providerAssignments[pid][day];
+      if(!c || c.off) continue;
+      if(c.maStaffId) locks[day].MA.add(c.maStaffId);
+      if(c.xrStaffId) locks[day].XR.add(c.xrStaffId);
+    }
+  }
+
+  for(const day of DAYS){
+    const f = payload.floatAssignments?.[day];
+    if(f?.ma?.staffId) locks[day].MA.add(f.ma.staffId);
+    if(f?.xr?.staffId) locks[day].XR.add(f.xr.staffId);
+  }
+
+  return locks;
+}
+
+function isStaffLockedForDay(payload, staffId, day, role, currentProviderId){
+  for(const pid of Object.keys(payload.providerAssignments||{})){
+    const c = payload.providerAssignments[pid][day];
+    if(!c || c.off) continue;
+
+    if(role === "MA" && c.maStaffId === staffId){
+      if(pid !== currentProviderId) return true;
+    }
+    if(role === "XR" && c.xrStaffId === staffId){
+      if(pid !== currentProviderId) return true;
+    }
+  }
+
+  const f = payload.floatAssignments?.[day];
+  if(role==="MA" && f?.ma?.staffId === staffId) return true;
+  if(role==="XR" && f?.xr?.staffId === staffId) return true;
+
+  return false;
+}
+
+/* ---------------- Float pool ---------------- */
 
 function renderFloatPool(payload){
   const box = $("#floatBox");
-  const locks = computeDayLocks(payload);
-  const allProvidersCoveredByDay = computeAllProvidersCoveredByDay(payload); // {day:boolean}
+  const allCovered = computeAllProvidersCoveredByDay(payload);
 
   box.innerHTML = DAYS.map(day=>{
-    const ok = allProvidersCoveredByDay[day];
+    const ok = allCovered[day];
     const float = payload.floatAssignments[day];
-    const maLabel = staffLabel(payload, float.ma.staffId, "MA");
-    const xrLabelTxt = staffLabel(payload, float.xr.staffId, "XR");
 
     return `
       <div class="floatRow">
@@ -832,7 +1069,7 @@ function renderFloatPool(payload){
           <div class="field grow" style="min-width:220px">
             <label>Float MA</label>
             <select data-float-ma="${day}" ${ok ? "" : "disabled"}>
-              ${staffOptions(payload, "MA", float.ma.staffId, locks[day]?.MA, /*allowSelf*/ true)}
+              ${staffOptions(payload, "MA", float.ma.staffId, day, "__FLOAT__")}
             </select>
           </div>
           <div class="field grow" style="min-width:220px">
@@ -853,7 +1090,7 @@ function renderFloatPool(payload){
           <div class="field grow" style="min-width:220px">
             <label>Float XR</label>
             <select data-float-xr="${day}" ${ok ? "" : "disabled"}>
-              ${staffOptions(payload, "XR", float.xr.staffId, locks[day]?.XR, true)}
+              ${staffOptions(payload, "XR", float.xr.staffId, day, "__FLOAT__", true)}
             </select>
           </div>
           <div class="field grow" style="min-width:220px">
@@ -879,10 +1116,8 @@ function renderFloatPool(payload){
     `;
   }).join("");
 
-  // wire float inputs
   DAYS.forEach(day=>{
-    const ok = computeAllProvidersCoveredByDay(payload)[day];
-    if(!ok) return;
+    if(!allCovered[day]) return;
 
     const selMA = box.querySelector(`[data-float-ma="${day}"]`);
     const selMALoc = box.querySelector(`[data-float-ma-loc="${day}"]`);
@@ -922,7 +1157,7 @@ function renderFloatPool(payload){
   });
 }
 
-/* Roster list (with role editing) */
+/* ---------------- Roster + role editing ---------------- */
 
 function renderRoster(payload){
   const wrap = $("#rosterEmailList");
@@ -932,11 +1167,12 @@ function renderRoster(payload){
     return;
   }
 
-  const locks = computeDayLocks(payload); // day => {MA:Set, XR:Set}
+  const locks = computeDayLocks(payload);
 
   wrap.innerHTML = roster.map(r=>{
     const lockedDays = DAYS.filter(d => (locks[d]?.[r.role] || new Set()).has(r.id));
     const lockMsg = lockedDays.length ? `Locked: ${lockedDays.join(", ")}` : `Not locked this week`;
+
     return `
       <div class="rosterItem">
         <div class="rosterTop">
@@ -984,7 +1220,7 @@ function renderRoster(payload){
   });
 }
 
-/* Time presets list */
+/* ---------------- Time presets ---------------- */
 
 function renderTimePresets(payload){
   const list = $("#presetList");
@@ -1003,7 +1239,6 @@ function renderTimePresets(payload){
   list.querySelectorAll("[data-del-preset]").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       const id = btn.dataset.delPreset;
-      // block deleting if used
       if(isPresetUsed(payload, id)){
         toast("Preset is used in schedule. Clear assignments first.");
         return;
@@ -1021,9 +1256,10 @@ function isPresetUsed(payload, presetId){
   for(const pid of Object.keys(payload.providerAssignments||{})){
     for(const day of DAYS){
       const c = payload.providerAssignments[pid][day];
-      if(c.segA?.presetId===presetId) return true;
-      if(c.segBEnabled && c.segB?.presetId===presetId) return true;
-      if(c.xrPresetId===presetId) return true;
+      if(!c || c.off) continue;
+      if(c.timeA===presetId) return true;
+      if(c.segBEnabled && c.timeB===presetId) return true;
+      if(c.xrTime===presetId) return true;
     }
   }
   for(const day of DAYS){
@@ -1034,7 +1270,7 @@ function isPresetUsed(payload, presetId){
   return false;
 }
 
-/* Locations */
+/* ---------------- Locations ---------------- */
 
 function renderLocations(){
   $("#locationList").innerHTML = LOCATIONS.map(l=>`
@@ -1042,489 +1278,7 @@ function renderLocations(){
   `).join("");
 }
 
-/* ---------------- Provider day modal ---------------- */
-
-function openProviderDayModal(payload, providerId, day){
-  const provider = payload.providers.find(p=>p.id===providerId);
-  if(!provider) return;
-
-  const locks = computeDayLocks(payload);
-  const dayLocksMA = locks[day]?.MA || new Set();
-  const dayLocksXR = locks[day]?.XR || new Set();
-
-  const cell = payload.providerAssignments[providerId][day];
-  const staffMA = payload.roster.filter(r=>r.role==="MA");
-  const staffXR = payload.roster.filter(r=>r.role==="XR");
-
-  openModal({
-    title: `${provider.name} • ${day}`,
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Status</label>
-        <select id="pStatus">
-          <option value="WORK" ${!cell.off?"selected":""}>Working</option>
-          <option value="OFF" ${cell.off?"selected":""}>OFF</option>
-        </select>
-        <div class="hint">OFF clears MA/XR for this provider/day.</div>
-      </div>
-
-      <div id="pWork">
-        <div class="row" style="padding:0; margin-top:12px; gap:12px">
-          <div class="field grow" style="min-width:240px">
-            <label>MA (required)</label>
-            <select id="pMA">
-              ${staffOptions(payload, "MA", cell.maStaffId, dayLocksMA, /*allowSelf*/ true, providerId, day)}
-            </select>
-            <div class="hint">Safeguard: MA can only be assigned to one provider per day.</div>
-          </div>
-
-          <div class="field grow" style="min-width:240px">
-            <label>Segment A Location</label>
-            <select id="pLocA">${locationOptionsHTML(cell.segA.location)}</select>
-          </div>
-
-          <div class="field" style="min-width:220px">
-            <label>Segment A Time</label>
-            <select id="pTimeA">${presetOptions(payload, cell.segA.presetId)}</select>
-          </div>
-        </div>
-
-        <div class="field" style="min-width:100%; margin-top:12px">
-          <label>Two locations same day?</label>
-          <select id="pSegBEnabled">
-            <option value="NO" ${!cell.segBEnabled?"selected":""}>No</option>
-            <option value="YES" ${cell.segBEnabled?"selected":""}>Yes (Segment B)</option>
-          </select>
-          <div class="hint">Use this when provider moves locations in the same day. MA follows provider.</div>
-        </div>
-
-        <div id="pSegBRow" class="row" style="padding:0; margin-top:12px; gap:12px">
-          <div class="field grow" style="min-width:240px">
-            <label>Segment B Location</label>
-            <select id="pLocB">${locationOptionsHTML(cell.segB.location)}</select>
-          </div>
-          <div class="field" style="min-width:220px">
-            <label>Segment B Time</label>
-            <select id="pTimeB">${presetOptions(payload, cell.segB.presetId)}</select>
-          </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="row" style="padding:0; margin-top:12px; gap:12px">
-          <div class="field grow" style="min-width:240px">
-            <label>XR Staff (optional)</label>
-            <select id="pXR">
-              ${staffOptions(payload, "XR", cell.xrStaffId, dayLocksXR, true, providerId, day)}
-            </select>
-            <div class="hint">Safeguard: XR staff can only be assigned to one provider per day.</div>
-          </div>
-
-          <div class="field grow" style="min-width:240px">
-            <label>XR Location</label>
-            <select id="pXRLoc">${locationOptionsHTML(cell.xrLocation)}</select>
-          </div>
-
-          <div class="field" style="min-width:200px">
-            <label>XR Room</label>
-            <select id="pXRRoom">${xrRoomOptions(cell.xrRoomId)}</select>
-          </div>
-
-          <div class="field" style="min-width:220px">
-            <label>XR Time</label>
-            <select id="pXRTime">${presetOptions(payload, cell.xrPresetId)}</select>
-          </div>
-        </div>
-      </div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn btnGhost" id="pClear">Clear Day</button>
-      <button class="btn" id="pSave">Save</button>
-    `,
-    onAfter(){
-      const workWrap = $("#pWork");
-      const statusSel = $("#pStatus");
-      const segBEnabledSel = $("#pSegBEnabled");
-      const segBRow = $("#pSegBRow");
-
-      const sync = ()=>{
-        const off = statusSel.value === "OFF";
-        workWrap.style.display = off ? "none" : "";
-        segBRow.style.display = (segBEnabledSel.value === "YES") ? "" : "none";
-      };
-      statusSel.addEventListener("change", sync);
-      segBEnabledSel.addEventListener("change", sync);
-      sync();
-
-      $("#pClear").addEventListener("click", ()=>{
-        payload.providerAssignments[providerId][day] = defaultProviderDayCell();
-        payload.providerDone[providerId] = false;
-        closeModal();
-        renderProviderList(payload);
-        renderActiveProvider(payload);
-        renderFloatPool(payload);
-      });
-
-      $("#pSave").addEventListener("click", ()=>{
-        const off = ($("#pStatus").value === "OFF");
-        if(off){
-          payload.providerAssignments[providerId][day] = defaultProviderDayCell();
-          payload.providerAssignments[providerId][day].off = true;
-          payload.providerDone[providerId] = false;
-          closeModal();
-          renderProviderList(payload);
-          renderActiveProvider(payload);
-          renderFloatPool(payload);
-          return;
-        }
-
-        const maStaffId = ($("#pMA").value || "").trim() || null;
-        if(!maStaffId) return toast("MA is required.");
-
-        // enforce lock (unless it’s currently assigned to this same provider/day)
-        if(isStaffLockedForDay(payload, maStaffId, day, "MA", providerId)){
-          return toast("That MA is already assigned to another provider for this day.");
-        }
-
-        const locA = ($("#pLocA").value||"").trim();
-        const timeA = ($("#pTimeA").value||"").trim();
-        if(!locA || !timeA) return toast("Segment A location and time are required.");
-
-        const segBEnabled = ($("#pSegBEnabled").value === "YES");
-        let locB = "", timeB = "";
-        if(segBEnabled){
-          locB = ($("#pLocB").value||"").trim();
-          timeB = ($("#pTimeB").value||"").trim();
-          if(!locB || !timeB) return toast("Segment B location and time are required.");
-        }
-
-        const xrStaffId = ($("#pXR").value||"").trim() || null;
-        const xrLoc = ($("#pXRLoc").value||"").trim();
-        const xrRoomId = ($("#pXRRoom").value||"").trim();
-        const xrTime = ($("#pXRTime").value||"").trim();
-
-        if(xrStaffId){
-          if(isStaffLockedForDay(payload, xrStaffId, day, "XR", providerId)){
-            return toast("That XR staff is already assigned to another provider for this day.");
-          }
-          if(!xrLoc || !xrRoomId || !xrTime) return toast("XR requires location + room + time.");
-        }
-
-        payload.providerAssignments[providerId][day] = {
-          off:false,
-          maStaffId,
-          segA:{ location: locA, presetId: timeA },
-          segBEnabled,
-          segB:{ location: locB, presetId: timeB },
-          xrStaffId,
-          xrLocation: xrStaffId ? xrLoc : "",
-          xrRoomId: xrStaffId ? xrRoomId : "",
-          xrPresetId: xrStaffId ? xrTime : ""
-        };
-
-        // auto-done logic: complete if MA assigned + segA complete; segB if enabled complete; XR if set complete
-        payload.providerDone[providerId] = payload.providerDone[providerId] || false;
-
-        closeModal();
-        renderProviderList(payload);
-        renderActiveProvider(payload);
-        renderFloatPool(payload);
-      });
-    }
-  });
-}
-
-/* ---------------- Completion rules ---------------- */
-
-function isProviderComplete(payload, providerId){
-  // complete if each weekday has either OFF or valid MA + segA (+ segB if enabled) and XR is either empty or valid
-  return DAYS.every(d => isProviderCompleteDay(payload, providerId, d));
-}
-
-function isProviderCompleteDay(payload, providerId, day){
-  const c = payload.providerAssignments?.[providerId]?.[day];
-  if(!c) return false;
-  if(c.off) return true;
-
-  if(!c.maStaffId) return false;
-  if(!c.segA?.location || !c.segA?.presetId) return false;
-  if(c.segBEnabled){
-    if(!c.segB?.location || !c.segB?.presetId) return false;
-  }
-  if(c.xrStaffId){
-    if(!c.xrLocation || !c.xrRoomId || !c.xrPresetId) return false;
-  }
-  return true;
-}
-
-function computeAllProvidersCoveredByDay(payload){
-  const out = {};
-  const providers = payload.providers || [];
-  DAYS.forEach(day=>{
-    out[day] = providers.every(p => isProviderCompleteDay(payload, p.id, day));
-  });
-  return out;
-}
-
-/* ---------------- Locks (Safeguard) ---------------- */
-
-function computeDayLocks(payload){
-  const locks = {};
-  DAYS.forEach(d=>{
-    locks[d] = { MA: new Set(), XR: new Set() };
-  });
-
-  for(const pid of Object.keys(payload.providerAssignments||{})){
-    for(const day of DAYS){
-      const c = payload.providerAssignments[pid][day];
-      if(!c || c.off) continue;
-
-      if(c.maStaffId) locks[day].MA.add(c.maStaffId);
-      if(c.xrStaffId) locks[day].XR.add(c.xrStaffId);
-    }
-  }
-
-  // float locks too (count as lock)
-  for(const day of DAYS){
-    const f = payload.floatAssignments?.[day];
-    if(f?.ma?.staffId) locks[day].MA.add(f.ma.staffId);
-    if(f?.xr?.staffId) locks[day].XR.add(f.xr.staffId);
-  }
-
-  return locks;
-}
-
-function isStaffLockedForDay(payload, staffId, day, role, currentProviderId){
-  // locked if assigned to a different provider (or float) on same day
-  for(const pid of Object.keys(payload.providerAssignments||{})){
-    const c = payload.providerAssignments[pid][day];
-    if(!c || c.off) continue;
-
-    if(role === "MA" && c.maStaffId === staffId){
-      if(pid !== currentProviderId) return true;
-    }
-    if(role === "XR" && c.xrStaffId === staffId){
-      if(pid !== currentProviderId) return true;
-    }
-  }
-
-  const f = payload.floatAssignments?.[day];
-  if(role==="MA" && f?.ma?.staffId === staffId) return true;
-  if(role==="XR" && f?.xr?.staffId === staffId) return true;
-
-  return false;
-}
-
-function lockTextForStaffDay(payload, staffId, day, currentProviderId, role){
-  // show where they are assigned (provider name or FLOAT)
-  for(const pid of Object.keys(payload.providerAssignments||{})){
-    const c = payload.providerAssignments[pid][day];
-    if(!c || c.off) continue;
-    if(role==="MA" && c.maStaffId===staffId && pid!==currentProviderId){
-      const p = payload.providers.find(x=>x.id===pid);
-      return `Locked to ${p?.name || "another provider"} (${day})`;
-    }
-    if(role==="XR" && c.xrStaffId===staffId && pid!==currentProviderId){
-      const p = payload.providers.find(x=>x.id===pid);
-      return `Locked to ${p?.name || "another provider"} (${day})`;
-    }
-  }
-  const f = payload.floatAssignments?.[day];
-  if(role==="MA" && f?.ma?.staffId===staffId) return `Locked to FLOAT (${day})`;
-  if(role==="XR" && f?.xr?.staffId===staffId) return `Locked to FLOAT (${day})`;
-  return "";
-}
-
-/* ---------------- Staff/Provider labels/options ---------------- */
-
-function staffLabel(payload, staffId, role){
-  if(!staffId) return role === "MA" ? "Unassigned" : "None";
-  const s = (payload.roster||[]).find(r=>r.id===staffId);
-  return s ? s.name : "Unknown";
-}
-
-function segmentLabel(payload, seg){
-  if(!seg?.location || !seg?.presetId) return "—";
-  const loc = seg.location;
-  const preset = (payload.timePresets||[]).find(x=>x.id===seg.presetId);
-  return `${loc} • ${preset ? preset.label : seg.presetId}`;
-}
-
-function xrLabel(payload, cell){
-  if(!cell.xrStaffId) return "—";
-  const staff = staffLabel(payload, cell.xrStaffId, "XR");
-  const preset = (payload.timePresets||[]).find(x=>x.id===cell.xrPresetId);
-  const time = preset ? preset.label : "";
-  return `${staff} • ${cell.xrLocation} • ${cell.xrRoomId} • ${time}`.trim();
-}
-
-function staffOptions(payload, role, selectedId, lockedSet, allowSelf=true, currentProviderId=null, day=null){
-  const roster = (payload.roster||[]).filter(r => r.role===role).slice().sort((a,b)=>a.name.localeCompare(b.name));
-  const opts = [
-    `<option value="">— ${role==="MA" ? "Select MA" : "None"} —</option>`
-  ];
-
-  roster.forEach(r=>{
-    let disabled = false;
-    let tag = "";
-
-    if(day){
-      // more accurate: check if locked elsewhere
-      const lockedElsewhere = isStaffLockedForDay(payload, r.id, day, role, currentProviderId);
-      if(lockedElsewhere && r.id !== selectedId){
-        disabled = true;
-        tag = " (locked)";
-      }
-    }else{
-      // fallback
-      if(lockedSet && lockedSet.has(r.id) && r.id !== selectedId) disabled = true;
-    }
-
-    opts.push(`<option value="${escapeHtml(r.id)}" ${r.id===selectedId?"selected":""} ${disabled?"disabled":""}>${escapeHtml(r.name)}${tag}</option>`);
-  });
-
-  return opts.join("");
-}
-
-function locationOptionsHTML(selectedCode){
-  const opts = [`<option value="">— Select —</option>`]
-    .concat(LOCATIONS.map(l=>`<option value="${l.code}" ${l.code===selectedCode?"selected":""}>${l.name} (${l.code})</option>`));
-  return opts.join("");
-}
-
-function presetOptions(payload, selectedId){
-  const presets = (payload.timePresets||[]).slice();
-  const opts = [`<option value="">— Select —</option>`]
-    .concat(presets.map(p => `<option value="${p.id}" ${p.id===selectedId?"selected":""}>${escapeHtml(p.label)}</option>`));
-  return opts.join("");
-}
-
-function xrRoomOptions(selectedId){
-  const opts = [`<option value="">— Select —</option>`]
-    .concat(XR_ROOMS.map(r => `<option value="${r.id}" ${r.id===selectedId?"selected":""}>${escapeHtml(r.label)}</option>`));
-  return opts.join("");
-}
-
-/* ---------------- Modals: Add staff/provider/preset ---------------- */
-
-function openAddStaffModal(payload){
-  openModal({
-    title: "Add Staff",
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Full name</label>
-        <input id="addStaffName" type="text" placeholder="First Last" />
-      </div>
-      <div class="field" style="min-width:100%; margin-top:10px">
-        <label>Email</label>
-        <input id="addStaffEmail" type="email" placeholder="name@laorthos.com" />
-      </div>
-      <div class="field" style="min-width:100%; margin-top:10px">
-        <label>Role</label>
-        <select id="addStaffRole">
-          <option value="MA">MA</option>
-          <option value="XR">XR</option>
-        </select>
-      </div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn" id="addStaffSave">Add</button>
-    `,
-    onAfter(){
-      $("#addStaffSave").addEventListener("click", ()=>{
-        const name = ($("#addStaffName").value||"").trim();
-        const email = ($("#addStaffEmail").value||"").trim();
-        const role = $("#addStaffRole").value;
-
-        if(!name) return toast("Name required.");
-        const idBase = slug(name);
-        const id = payload.roster.some(r=>r.id===idBase) ? `${idBase}-${Math.random().toString(16).slice(2,6)}` : idBase;
-
-        payload.roster.push({ id, name, role, email });
-        closeModal();
-        toast("Staff added.");
-        renderRoster(payload);
-        renderActiveProvider(payload);
-        renderFloatPool(payload);
-      });
-    }
-  });
-}
-
-function openAddProviderModal(payload){
-  openModal({
-    title: "Add Provider",
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Provider name</label>
-        <input id="addProvName" type="text" placeholder="Dr. Lastname" />
-      </div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn" id="addProvSave">Add</button>
-    `,
-    onAfter(){
-      $("#addProvSave").addEventListener("click", ()=>{
-        const name = ($("#addProvName").value||"").trim();
-        if(!name) return toast("Provider name required.");
-        payload.providers = mergeProviders(payload.providers || [], [{ id: slug(name), name }]);
-        ensureProviderAssignmentsScaffold(payload);
-        closeModal();
-        toast("Provider added.");
-        renderProviderList(payload);
-      });
-    }
-  });
-}
-
-function openAddTimePresetModal(payload){
-  openModal({
-    title: "Add Time Preset",
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Label</label>
-        <input id="tpLabel" type="text" placeholder="Example: 9:00am - 5:30pm" />
-      </div>
-      <div class="row" style="padding:0; margin-top:12px; gap:12px">
-        <div class="field grow" style="min-width:220px">
-          <label>Start</label>
-          <input id="tpStart" type="time" />
-        </div>
-        <div class="field grow" style="min-width:220px">
-          <label>End</label>
-          <input id="tpEnd" type="time" />
-        </div>
-      </div>
-      <div class="hint">This will become selectable everywhere (Provider days + Float).</div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn" id="tpSave">Add</button>
-    `,
-    onAfter(){
-      $("#tpSave").addEventListener("click", ()=>{
-        const label = ($("#tpLabel").value||"").trim();
-        const start = ($("#tpStart").value||"").trim();
-        const end = ($("#tpEnd").value||"").trim();
-        if(!label) return toast("Label required.");
-        if(!start || !end) return toast("Start and end required.");
-
-        const id = `tp_${Math.random().toString(16).slice(2,10)}`;
-        payload.timePresets.push({ id, label, start, end });
-        closeModal();
-        toast("Preset added.");
-        renderTimePresets(payload);
-        renderActiveProvider(payload);
-        renderFloatPool(payload);
-      });
-    }
-  });
-}
-
-/* ---------------- Staff/prov CSV parsing ---------------- */
+/* ---------------- Staff / provider CSV parsing ---------------- */
 
 function parseStaffCSV(text){
   const rows = csvToRows(text).filter(r => r.some(x => (x||"").trim() !== ""));
@@ -1616,7 +1370,6 @@ function mergeProviders(current, incoming){
 /* ---------------- Provider-driven -> Staff-driven generation ---------------- */
 
 function rebuildStaffViewFromProviderDriven(payload){
-  // Creates payload.entries + payload.templates from providerAssignments + floatAssignments
   payload.templates = [];
   payload.entries = {};
   payload.assignmentMeta = {};
@@ -1628,76 +1381,71 @@ function rebuildStaffViewFromProviderDriven(payload){
     payload.assignmentMeta[r.id] = {};
   });
 
-  // helper to add template + assign
   const put = (staffId, day, text, meta) => {
     const tid = ensureTemplate(payload, text);
     payload.entries[staffId][day] = tid;
     payload.assignmentMeta[staffId][day] = meta || {};
   };
 
-  // provider assignments
   for(const pid of Object.keys(payload.providerAssignments||{})){
     const provider = (payload.providers||[]).find(p=>p.id===pid);
+
     for(const day of DAYS){
       const c = payload.providerAssignments[pid][day];
-      if(!c) continue;
+      if(!c || c.off) continue;
 
-      // OFF: we leave staff assignment empty (provider off doesn't automatically mean MA off)
-      // If you want "provider OFF day" to show, we can add a provider-level report later.
-      if(c.off) continue;
-
-      // MA assignment text
+      // MA text now is provider location/time + MA name (reflecting your new flow)
       if(c.maStaffId){
-        const maPresetA = findPreset(payload, c.segA.presetId);
-        const segAText = `${c.segA.location} ${maPresetA?.label || ""}`.trim();
+        const pA = findPreset(payload, c.timeA);
+        const primary = `${c.locA} ${pA ? pA.label : ""}`.trim();
 
-        let segBText = "";
+        let segB = "";
         if(c.segBEnabled){
-          const maPresetB = findPreset(payload, c.segB.presetId);
-          segBText = ` + ${c.segB.location} ${maPresetB?.label || ""}`.trim();
+          const pB = findPreset(payload, c.timeB);
+          segB = ` + ${c.locB} ${pB ? pB.label : ""}`.trim();
         }
 
-        const text = `MA ${provider?.name || ""} • ${segAText}${segBText}`.trim();
+        const text = `MA • ${provider?.name || ""} • ${primary}${segB}`.trim();
         put(c.maStaffId, day, text, {
           kind:"MA",
           providerId: pid,
           providerName: provider?.name || "",
-          segA: { ...c.segA },
+          locA: c.locA,
+          timeA: c.timeA,
           segBEnabled: !!c.segBEnabled,
-          segB: { ...c.segB },
+          locB: c.locB,
+          timeB: c.timeB
         });
       }
 
-      // XR assignment text
       if(c.xrStaffId){
-        const xrPreset = findPreset(payload, c.xrPresetId);
-        const text = `XR ${provider?.name || ""} • ${c.xrLocation} • ${c.xrRoomId} • ${xrPreset?.label || ""}`.trim();
+        const pX = findPreset(payload, c.xrTime);
+        const text = `XR • ${provider?.name || ""} • ${c.xrLocation} • ${c.xrRoomId} • ${pX ? pX.label : ""}`.trim();
         put(c.xrStaffId, day, text, {
           kind:"XR",
           providerId: pid,
           providerName: provider?.name || "",
-          location: c.xrLocation,
-          room: c.xrRoomId,
-          presetId: c.xrPresetId
+          xrLocation: c.xrLocation,
+          xrRoomId: c.xrRoomId,
+          xrTime: c.xrTime
         });
       }
     }
   }
 
-  // Float assignments
   for(const day of DAYS){
     const f = payload.floatAssignments?.[day];
     if(!f) continue;
 
     if(f.ma?.staffId){
-      const preset = findPreset(payload, f.ma.presetId);
-      const text = `MA FLOAT • ${f.ma.location} • ${preset?.label || ""}`.trim();
+      const p = findPreset(payload, f.ma.presetId);
+      const text = `MA • FLOAT • ${f.ma.location} • ${p ? p.label : ""}`.trim();
       put(f.ma.staffId, day, text, { kind:"MA", float:true, location:f.ma.location, presetId:f.ma.presetId });
     }
 
     if(f.xr?.staffId){
-      const preset = findPreset(payload, f.xr.presetId);
-      const text = `XR FLOAT • ${f.xr.location} • ${f.xr.roomId} • ${preset?.label || ""}`.trim();
+      const p = findPreset(payload, f.xr.presetId);
+      const text = `XR • FLOAT • ${f.xr.location} • ${f.xr.roomId} • ${p ? p.label : ""}`.trim();
       put(f.xr.staffId, day, text, { kind:"XR", float:true, location:f.xr.location, room:f.xr.roomId, presetId:f.xr.presetId });
     }
   }
@@ -1720,39 +1468,30 @@ function findPreset(payload, presetId){
 function validate(payload){
   const issues = [];
 
-  // roster email required for My Schedule
   (payload.roster||[]).forEach(r=>{
     if(!r.email) issues.push(`${r.name} missing email`);
   });
 
-  // Provider schedule must have MA assigned + segA complete each day (unless OFF)
   (payload.providers||[]).forEach(p=>{
     for(const day of DAYS){
       const c = payload.providerAssignments?.[p.id]?.[day];
       if(!c) { issues.push(`${p.name} missing ${day}`); continue; }
       if(c.off) continue;
+
+      if(!c.locA) issues.push(`${p.name} missing location on ${day}`);
+      if(!c.timeA) issues.push(`${p.name} missing time on ${day}`);
       if(!c.maStaffId) issues.push(`${p.name} missing MA on ${day}`);
-      if(!c.segA?.location || !c.segA?.presetId) issues.push(`${p.name} missing Segment A on ${day}`);
+
       if(c.segBEnabled){
-        if(!c.segB?.location || !c.segB?.presetId) issues.push(`${p.name} missing Segment B on ${day}`);
+        if(!c.locB) issues.push(`${p.name} missing Segment B location on ${day}`);
+        if(!c.timeB) issues.push(`${p.name} missing Segment B time on ${day}`);
       }
+
       if(c.xrStaffId){
-        if(!c.xrLocation || !c.xrRoomId || !c.xrPresetId) issues.push(`${p.name} XR incomplete on ${day}`);
+        if(!c.xrLocation || !c.xrRoomId || !c.xrTime) issues.push(`${p.name} XR incomplete on ${day}`);
       }
     }
   });
-
-  // lock enforcement check (after generation)
-  const seen = {};
-  for(const r of (payload.roster||[])){
-    for(const day of DAYS){
-      const tid = payload.entries?.[r.id]?.[day];
-      if(!tid) continue;
-      const key = `${r.role}:${r.id}:${day}`;
-      if(seen[key]) issues.push(`${r.name} double-booked on ${day}`);
-      seen[key] = true;
-    }
-  }
 
   return issues;
 }
@@ -1782,11 +1521,180 @@ function exportPublishedToCSV(){
   toast("CSV exported.");
 }
 
-/* ---------------- Template lookup for viewing ---------------- */
-
 function templateTextById(sched, id){
   const t = (sched.templates||[]).find(x=>x.id===id);
   return t ? (t.raw || "") : "";
+}
+
+/* ---------------- Provider/XR labels + staff options ---------------- */
+
+function staffLabel(payload, staffId, role){
+  if(!staffId) return role === "MA" ? "Unassigned" : "None";
+  const s = (payload.roster||[]).find(r=>r.id===staffId);
+  return s ? s.name : "Unknown";
+}
+
+function xrLabel(payload, c){
+  if(!c.xrStaffId) return "—";
+  const staff = staffLabel(payload, c.xrStaffId, "XR");
+  const p = findPreset(payload, c.xrTime);
+  return `${staff} • ${c.xrLocation} • ${c.xrRoomId} • ${p ? p.label : ""}`.trim();
+}
+
+function staffOptions(payload, role, selectedId, day, currentProviderId, allowNoneForXR=false){
+  const roster = (payload.roster||[]).filter(r => r.role===role).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const opts = [];
+
+  if(role==="XR" && allowNoneForXR){
+    opts.push(`<option value="">— None —</option>`);
+  }else{
+    opts.push(`<option value="">— Select ${role} —</option>`);
+  }
+
+  roster.forEach(r=>{
+    const lockedElsewhere = isStaffLockedForDay(payload, r.id, day, role, currentProviderId);
+    const disabled = lockedElsewhere && r.id !== selectedId;
+    opts.push(`<option value="${escapeHtml(r.id)}" ${r.id===selectedId?"selected":""} ${disabled?"disabled":""}>${escapeHtml(r.name)}${disabled ? " (locked)" : ""}</option>`);
+  });
+
+  return opts.join("");
+}
+
+function locationOptionsHTML(selectedCode){
+  const opts = [`<option value="">— Select —</option>`]
+    .concat(LOCATIONS.map(l=>`<option value="${l.code}" ${l.code===selectedCode?"selected":""}>${l.name} (${l.code})</option>`));
+  return opts.join("");
+}
+
+function presetOptions(payload, selectedId){
+  const presets = (payload.timePresets||[]).slice();
+  const opts = [`<option value="">— Select —</option>`]
+    .concat(presets.map(p => `<option value="${p.id}" ${p.id===selectedId?"selected":""}>${escapeHtml(p.label)}</option>`));
+  return opts.join("");
+}
+
+function xrRoomOptions(selectedId){
+  const opts = [`<option value="">— Select —</option>`]
+    .concat(XR_ROOMS.map(r => `<option value="${r.id}" ${r.id===selectedId?"selected":""}>${escapeHtml(r.label)}</option>`));
+  return opts.join("");
+}
+
+/* ---------------- Modals to add staff/provider/preset ---------------- */
+
+function openAddStaffModal(payload){
+  openModal({
+    title: "Add Staff",
+    body: `
+      <div class="field" style="min-width:100%">
+        <label>Full name</label>
+        <input id="addStaffName" type="text" placeholder="First Last" />
+      </div>
+      <div class="field" style="min-width:100%; margin-top:10px">
+        <label>Email</label>
+        <input id="addStaffEmail" type="email" placeholder="name@laorthos.com" />
+      </div>
+      <div class="field" style="min-width:100%; margin-top:10px">
+        <label>Role</label>
+        <select id="addStaffRole">
+          <option value="MA">MA</option>
+          <option value="XR">XR</option>
+        </select>
+      </div>
+    `,
+    foot: `
+      <button class="btn btnGhost" data-close="1">Cancel</button>
+      <button class="btn" id="addStaffSave">Add</button>
+    `,
+    onAfter(){
+      $("#addStaffSave").addEventListener("click", ()=>{
+        const name = ($("#addStaffName").value||"").trim();
+        const email = ($("#addStaffEmail").value||"").trim();
+        const role = $("#addStaffRole").value;
+
+        if(!name) return toast("Name required.");
+        const idBase = slug(name);
+        const id = payload.roster.some(r=>r.id===idBase) ? `${idBase}-${Math.random().toString(16).slice(2,6)}` : idBase;
+
+        payload.roster.push({ id, name, role, email });
+        closeModal();
+        toast("Staff added.");
+        renderRoster(payload);
+        renderActiveProvider(payload);
+        renderFloatPool(payload);
+      });
+    }
+  });
+}
+
+function openAddProviderModal(payload){
+  openModal({
+    title: "Add Provider",
+    body: `
+      <div class="field" style="min-width:100%">
+        <label>Provider name</label>
+        <input id="addProvName" type="text" placeholder="Dr. Lastname" />
+      </div>
+    `,
+    foot: `
+      <button class="btn btnGhost" data-close="1">Cancel</button>
+      <button class="btn" id="addProvSave">Add</button>
+    `,
+    onAfter(){
+      $("#addProvSave").addEventListener("click", ()=>{
+        const name = ($("#addProvName").value||"").trim();
+        if(!name) return toast("Provider name required.");
+        payload.providers = mergeProviders(payload.providers || [], [{ id: slug(name), name }]);
+        ensureProviderAssignmentsScaffold(payload);
+        closeModal();
+        toast("Provider added.");
+        renderProviderList(payload);
+      });
+    }
+  });
+}
+
+function openAddTimePresetModal(payload){
+  openModal({
+    title: "Add Time Preset",
+    body: `
+      <div class="field" style="min-width:100%">
+        <label>Label</label>
+        <input id="tpLabel" type="text" placeholder="Example: 9:00am - 5:30pm" />
+      </div>
+      <div class="row" style="padding:0; margin-top:12px; gap:12px">
+        <div class="field grow" style="min-width:220px">
+          <label>Start</label>
+          <input id="tpStart" type="time" />
+        </div>
+        <div class="field grow" style="min-width:220px">
+          <label>End</label>
+          <input id="tpEnd" type="time" />
+        </div>
+      </div>
+      <div class="hint">This will become selectable everywhere.</div>
+    `,
+    foot: `
+      <button class="btn btnGhost" data-close="1">Cancel</button>
+      <button class="btn" id="tpSave">Add</button>
+    `,
+    onAfter(){
+      $("#tpSave").addEventListener("click", ()=>{
+        const label = ($("#tpLabel").value||"").trim();
+        const start = ($("#tpStart").value||"").trim();
+        const end = ($("#tpEnd").value||"").trim();
+        if(!label) return toast("Label required.");
+        if(!start || !end) return toast("Start and end required.");
+
+        const id = `tp_${Math.random().toString(16).slice(2,10)}`;
+        payload.timePresets.push({ id, label, start, end });
+        closeModal();
+        toast("Preset added.");
+        renderTimePresets(payload);
+        renderActiveProvider(payload);
+        renderFloatPool(payload);
+      });
+    }
+  });
 }
 
 /* ---------------- Helpers ---------------- */
