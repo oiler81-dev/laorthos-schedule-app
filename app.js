@@ -1,1835 +1,724 @@
-const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
-
-const DEFAULTS_PK = "__defaults__";
-const DEFAULT_ROSTER_RK = "roster";
-const DEFAULT_PROVIDERS_RK = "providers";
-const DEFAULT_PRESETS_RK = "timepresets";
-
-const LOCATIONS = [
-  { code:"WIL", name:"Wilshire" },
-  { code:"SFS", name:"Santa Fe Springs" },
-  { code:"ELA", name:"East LA" },
-  { code:"GLE", name:"Glendale" },
-  { code:"TZ",  name:"Tarzana" },
-  { code:"ENC", name:"Encino" },
-  { code:"VAL", name:"Valencia" },
-  { code:"TO",  name:"Thousand Oaks" },
-];
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const DAY_STATUSES = ["Scheduled", "OFF", "PTO", "Holiday", "Admin", "Call Only"];
+const NON_SCHEDULED_STATUSES = new Set(["OFF", "PTO", "Holiday", "Admin", "Call Only"]);
 
 const DEFAULT_TIME_PRESETS = [
-  { id:"t1", label:"7:50am - 4:20pm", start:"07:50", end:"16:20" },
-  { id:"t2", label:"8:00am - 4:30pm", start:"08:00", end:"16:30" },
-  { id:"t3", label:"8:30am - 5:00pm", start:"08:30", end:"17:00" },
-  { id:"t4", label:"8:00am - 5:00pm", start:"08:00", end:"17:00" },
+  "7:50am - 4:20pm",
+  "8:00am - 4:30pm",
+  "8:30am - 5:00pm",
+  "8:00am - 5:00pm"
 ];
-
-const XR_ROOMS = [
-  { id:"R1", label:"XR Room 1" },
-  { id:"R2", label:"XR Room 2" },
-  { id:"R3", label:"XR Room 3" },
-];
-
-const $ = (sel) => document.querySelector(sel);
 
 const state = {
-  auth: { email: null, editor: false },
-  view: "my",
-
-  weeks: [],
-  currentWeekOf: null,
-
-  published: null,
-  draft: null,
-
-  activeProviderId: null,
-  providerSearch: "",
+  weekOf: "",
+  providers: [],
+  staff: [],
+  schedule: {},
+  selectedProviderId: "",
+  timePresets: [...DEFAULT_TIME_PRESETS],
+  filters: {
+    providerSearch: ""
+  },
+  modal: {
+    providerId: "",
+    day: ""
+  }
 };
 
-init().catch(err => {
-  console.error(err);
-  toast("Init failed. Check console.");
-});
+const $ = (id) => document.getElementById(id);
 
-async function init(){
-  wireTabs();
-  wireButtons();
-
-  await loadAuth();
-  await loadWeeks();
-
-  state.currentWeekOf = state.weeks[0] || mondayOf(new Date());
-
-  await loadPublished(state.currentWeekOf);
-  renderWeekPickers();
-
-  renderAll();
+function startOfWeek(dateStr) {
+  const date = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return date.toISOString().slice(0, 10);
 }
 
-/* ---------------- Auth ---------------- */
-
-async function loadAuth(){
-  const res = await fetch("./api/me", { cache: "no-store" });
-  const data = await res.json();
-  state.auth.email = data.email;
-  state.auth.editor = !!data.editor;
-
-  $("#authLine").textContent = state.auth.email
-    ? `${state.auth.email}${state.auth.editor ? " • Editor" : ""}`
-    : `Not logged in`;
-
-  $("#builderTab").style.display = state.auth.editor ? "" : "none";
-
-  $("#btnLogin").style.display = state.auth.email ? "none" : "";
-  $("#btnLogout").style.display = state.auth.email ? "" : "none";
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
-function login(){ window.location.href = "/.auth/login/aad"; }
-function logout(){ window.location.href = "/.auth/logout"; }
 
-/* ---------------- API ---------------- */
+function keyFor(providerId, day) {
+  return `${providerId}__${day}`;
+}
 
-async function loadWeeks(){
-  try{
-    const res = await fetch("./api/weeks", { cache: "no-store" });
-    if(!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    state.weeks = (data.weeks || []).slice();
-    state.weeks.sort((a,b)=> a < b ? 1 : -1);
-  }catch(e){
-    console.warn("weeks load failed", e);
-    state.weeks = [];
+function toId(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function getProviderById(providerId) {
+  return state.providers.find(p => p.id === providerId) || null;
+}
+
+function getLocations(provider) {
+  const set = new Set();
+  if (!provider) return [];
+  if (provider.location) set.add(provider.location);
+  if (provider.locations) {
+    provider.locations.split("|").map(v => v.trim()).filter(Boolean).forEach(v => set.add(v));
   }
+  return [...set];
 }
 
-async function loadPublished(weekOf){
-  try{
-    const res = await fetch(`./api/schedule?weekOf=${encodeURIComponent(weekOf)}&mode=published`, { cache: "no-store" });
-    if(!res.ok){ state.published = null; return; }
-    const data = await res.json();
-    state.published = data.data || null;
-  }catch{
-    state.published = null;
+function getEntry(providerId, day) {
+  const key = keyFor(providerId, day);
+  if (!state.schedule[key]) {
+    state.schedule[key] = {
+      providerId,
+      day,
+      status: "Scheduled",
+      maId: "",
+      maName: "",
+      xrtId: "",
+      xrtName: "",
+      location: "",
+      secondaryLocation: "",
+      time: state.timePresets[0] || "",
+      xrRoom: "",
+      notes: ""
+    };
   }
+  return state.schedule[key];
 }
 
-async function loadDraft(weekOf){
-  try{
-    const res = await fetch(`./api/schedule?weekOf=${encodeURIComponent(weekOf)}&mode=draft`, { cache: "no-store" });
-    if(!res.ok){ state.draft = null; return; }
-    const data = await res.json();
-    state.draft = data.data || null;
-  }catch{
-    state.draft = null;
+function clearStaffingFields(entry) {
+  entry.maId = "";
+  entry.maName = "";
+  entry.xrtId = "";
+  entry.xrtName = "";
+  entry.location = "";
+  entry.secondaryLocation = "";
+  entry.time = state.timePresets[0] || "";
+  entry.xrRoom = "";
+  entry.notes = "";
+}
+
+function getStaffById(staffId) {
+  return state.staff.find(s => s.id === staffId);
+}
+
+function isFloatStaff(staff) {
+  return !!staff?.isFloat;
+}
+
+function isMAConflict(maId, day, providerId) {
+  if (!maId) return false;
+  const staff = getStaffById(maId);
+  if (isFloatStaff(staff)) return false;
+
+  for (const entry of Object.values(state.schedule)) {
+    if (
+      entry.providerId !== providerId &&
+      entry.day === day &&
+      entry.status === "Scheduled" &&
+      entry.maId === maId
+    ) {
+      return true;
+    }
   }
+  return false;
 }
 
-async function saveSchedule(mode, payload){
-  const res = await fetch("./api/schedule", {
+function isDayComplete(entry) {
+  if (!entry) return false;
+  if (NON_SCHEDULED_STATUSES.has(entry.status)) return true;
+  if (entry.status !== "Scheduled") return false;
+  return !!(entry.maId && entry.location && entry.time);
+}
+
+function providerCompletion(providerId) {
+  let complete = 0;
+  let partial = 0;
+  let nonScheduled = 0;
+
+  for (const day of DAYS) {
+    const entry = getEntry(providerId, day);
+
+    if (NON_SCHEDULED_STATUSES.has(entry.status)) {
+      complete++;
+      nonScheduled++;
+      continue;
+    }
+
+    if (isDayComplete(entry)) {
+      complete++;
+    } else if (entry.maId || entry.location || entry.time || entry.xrtId || entry.secondaryLocation || entry.xrRoom || entry.notes) {
+      partial++;
+    }
+  }
+
+  if (complete === 5) return { cls: "green", text: `Complete (${complete}/5)` };
+  if (partial > 0 || complete > 0) return { cls: "yellow", text: `Partial (${complete}/5)` };
+  return { cls: "red", text: "Not Started" };
+}
+
+function getWeekPayload() {
+  return DAYS.flatMap(day => {
+    return state.providers.map(provider => {
+      const e = getEntry(provider.id, day);
+      return {
+        weekOf: state.weekOf,
+        providerId: provider.id,
+        providerName: provider.name,
+        day,
+        status: e.status || "Scheduled",
+        maId: e.maId || "",
+        maName: e.maName || "",
+        xrtId: e.xrtId || "",
+        xrtName: e.xrtName || "",
+        location: e.location || "",
+        secondaryLocation: e.secondaryLocation || "",
+        time: e.time || "",
+        xrRoom: e.xrRoom || "",
+        notes: e.notes || ""
+      };
+    });
+  });
+}
+
+function setSaveStatus(text, isGood = false) {
+  const el = $("saveStatus");
+  el.textContent = text;
+  el.style.color = isGood ? "var(--good)" : "var(--muted)";
+}
+
+async function apiGet(url) {
+  const res = await fetch(url, { credentials: "same-origin" });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return res.json();
+}
+
+async function apiPost(url, body) {
+  const res = await fetch(url, {
     method: "POST",
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ weekOf: payload.weekOf, mode, data: payload })
+    body: JSON.stringify(body)
   });
-  if(!res.ok) throw new Error(await res.text());
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
+  return data;
 }
 
-/* ---------------- Tabs ---------------- */
-
-function wireTabs(){
-  document.querySelectorAll(".tab").forEach(btn=>{
-    btn.addEventListener("click", ()=> setView(btn.dataset.view));
-  });
-}
-function setView(view){
-  state.view = view;
-  document.querySelectorAll(".tab").forEach(t=>{
-    const is = t.dataset.view === view;
-    t.classList.toggle("is-active", is);
-    t.setAttribute("aria-selected", is ? "true" : "false");
-  });
-  ["my","everyone","builder"].forEach(v=>{
-    $(`#view-${v}`).hidden = (v !== view);
-  });
+async function loadProviders() {
+  const data = await apiGet("/api/providers");
+  state.providers = Array.isArray(data.providers) ? data.providers : [];
+  if (!state.selectedProviderId && state.providers.length) {
+    state.selectedProviderId = state.providers[0].id;
+  }
 }
 
-/* ---------------- Week pickers ---------------- */
-
-function renderWeekPickers(){
-  const weeks = state.weeks.length ? state.weeks : [state.currentWeekOf];
-  const opts = weeks.map(w => `<option value="${w}">${w}</option>`).join("");
-
-  $("#weekPickMy").innerHTML = opts;
-  $("#weekPickEveryone").innerHTML = opts;
-  $("#weekPickBuilder").innerHTML = opts;
-
-  $("#weekPickMy").value = state.currentWeekOf;
-  $("#weekPickEveryone").value = state.currentWeekOf;
-  $("#weekPickBuilder").value = state.currentWeekOf;
-
-  $("#weekPickMy").onchange = async (e)=>{ await changeWeek(e.target.value); };
-  $("#weekPickEveryone").onchange = async (e)=>{ await changeWeek(e.target.value); };
-  $("#weekPickBuilder").onchange = async (e)=>{ await changeWeek(e.target.value); };
+async function loadStaff() {
+  const data = await apiGet("/api/roster");
+  state.staff = Array.isArray(data.staff) ? data.staff : [];
 }
 
-function setAllWeekPickers(week){
-  $("#weekPickMy").value = week;
-  $("#weekPickEveryone").value = week;
-  $("#weekPickBuilder").value = week;
-}
+async function loadWeek() {
+  const data = await apiGet(`/api/weeks?weekOf=${encodeURIComponent(state.weekOf)}`);
+  state.schedule = {};
 
-async function changeWeek(week){
-  state.currentWeekOf = week;
-  setAllWeekPickers(week);
-
-  await loadPublished(week);
-
-  if(state.draft && state.draft.weekOf !== week){
-    state.draft = null;
-    state.activeProviderId = null;
+  const items = Array.isArray(data.items) ? data.items : [];
+  for (const item of items) {
+    state.schedule[keyFor(item.providerId, item.day)] = {
+      providerId: item.providerId,
+      day: item.day,
+      status: item.status || "Scheduled",
+      maId: item.maId || "",
+      maName: item.maName || "",
+      xrtId: item.xrtId || "",
+      xrtName: item.xrtName || "",
+      location: item.location || "",
+      secondaryLocation: item.secondaryLocation || "",
+      time: item.time || state.timePresets[0] || "",
+      xrRoom: item.xrRoom || "",
+      notes: item.notes || ""
+    };
   }
 
   renderAll();
+  setSaveStatus(`Loaded week of ${state.weekOf}`, true);
 }
 
-/* ---------------- Buttons ---------------- */
+function createProviderStatusDot(providerId) {
+  const status = providerCompletion(providerId);
+  if (status.cls === "green") return "green";
+  if (status.cls === "yellow") return "yellow";
+  return "red";
+}
 
-function wireButtons(){
-  $("#btnPrint").addEventListener("click", ()=> window.print());
-  $("#btnExportCSV").addEventListener("click", exportPublishedToCSV);
+function renderProviderList() {
+  const wrap = $("providerList");
+  wrap.innerHTML = "";
 
-  $("#btnLogin").addEventListener("click", login);
-  $("#btnLogout").addEventListener("click", logout);
+  const q = state.filters.providerSearch.toLowerCase().trim();
 
-  // Staff import
-  $("#btnImportStaffCSV").addEventListener("click", ()=> $("#staffFile").click());
-  $("#staffFile").addEventListener("change", async (e)=>{
-    const f = e.target.files?.[0];
-    if(!f) return;
-    const text = await f.text();
-    try{
-      const staff = parseStaffCSV(text);
-      const payload = ensureDraftForWeek(state.currentWeekOf);
-      mergeStaffIntoRoster(payload, staff, { defaultRole:"MA" });
-      toast(`Staff imported (${staff.length}).`);
-      $("#staffFile").value = "";
-      renderBuilder();
-      renderMy();
-      renderEveryone();
-    }catch(err){
-      console.error(err);
-      toast("Staff import failed.");
-    }
+  const providers = state.providers.filter(p => {
+    if (!q) return true;
+    return `${p.name} ${p.location || ""} ${p.specialty || ""}`.toLowerCase().includes(q);
   });
 
-  $("#btnLoadStaffFromRepo").addEventListener("click", async ()=>{
-    try{
-      const res = await fetch("./data/staff.csv", { cache:"no-store" });
-      if(!res.ok) throw new Error("Missing ./data/staff.csv");
-      const text = await res.text();
-      const staff = parseStaffCSV(text);
-      const payload = ensureDraftForWeek(state.currentWeekOf);
-      mergeStaffIntoRoster(payload, staff, { defaultRole:"MA" });
-      toast(`Staff loaded from repo (${staff.length}).`);
-      renderBuilder();
-      renderMy();
-      renderEveryone();
-    }catch(e){
-      console.error(e);
-      toast("Load staff from repo failed. Put file at /data/staff.csv");
-    }
-  });
+  for (const provider of providers) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `provider-item ${provider.id === state.selectedProviderId ? "active" : ""}`;
 
-  $("#btnAddStaff").addEventListener("click", ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftForWeek(state.currentWeekOf);
-    openAddStaffModal(payload);
-  });
+    const dot = createProviderStatusDot(provider.id);
 
-  // Providers import
-  $("#btnImportProvidersCSV").addEventListener("click", ()=> $("#providersFile").click());
-  $("#providersFile").addEventListener("change", async (e)=>{
-    const f = e.target.files?.[0];
-    if(!f) return;
-    const text = await f.text();
-    try{
-      const providers = parseProvidersCSV(text);
-      const payload = ensureDraftForWeek(state.currentWeekOf);
-      payload.providers = mergeProviders(payload.providers || [], providers);
-      ensureProviderAssignmentsScaffold(payload);
-      toast(`Providers imported (${providers.length}).`);
-      $("#providersFile").value = "";
-      renderBuilder();
-    }catch(err){
-      console.error(err);
-      toast("Providers import failed.");
-    }
-  });
+    item.innerHTML = `
+      <div class="provider-item-main">
+        <div class="provider-item-name">${escapeHtml(provider.name)}</div>
+        <div class="provider-item-meta">${escapeHtml([provider.location, provider.specialty].filter(Boolean).join(" • "))}</div>
+      </div>
+      <span class="status-dot ${dot}"></span>
+    `;
 
-  $("#btnLoadProvidersFromRepo").addEventListener("click", async ()=>{
-    try{
-      const res = await fetch("./data/providers.csv", { cache:"no-store" });
-      if(!res.ok) throw new Error("Missing ./data/providers.csv");
-      const text = await res.text();
-      const providers = parseProvidersCSV(text);
-      const payload = ensureDraftForWeek(state.currentWeekOf);
-      payload.providers = mergeProviders(payload.providers || [], providers);
-      ensureProviderAssignmentsScaffold(payload);
-      toast(`Providers loaded from repo (${providers.length}).`);
-      renderBuilder();
-    }catch(e){
-      console.error(e);
-      toast("Load providers from repo failed. Put file at /data/providers.csv");
-    }
-  });
-
-  $("#btnAddProvider").addEventListener("click", ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftForWeek(state.currentWeekOf);
-    openAddProviderModal(payload);
-  });
-
-  // Time preset add
-  $("#btnAddTimePreset").addEventListener("click", ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftForWeek(state.currentWeekOf);
-    openAddTimePresetModal(payload);
-  });
-
-  // Draft/Published
-  $("#btnLoadDraft").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    await loadDraft(state.currentWeekOf);
-    if(state.draft){
-      normalizeDraft(state.draft);
-      toast("Draft loaded.");
-    }else{
-      toast("No draft found for this week.");
-    }
-    renderAll();
-  });
-
-  $("#btnLoadPublished").addEventListener("click", async ()=>{
-    await loadPublished(state.currentWeekOf);
-    toast(state.published ? "Published loaded." : "No published schedule found.");
-    renderAll();
-  });
-
-  $("#btnSaveDraft").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftForWeek(state.currentWeekOf);
-    rebuildStaffViewFromProviderDriven(payload);
-
-    try{
-      await saveSchedule("draft", payload);
-      toast("Draft saved.");
-    }catch(e){
-      console.error(e);
-      toast("Draft save failed.");
-    }
-  });
-
-  $("#btnPublish").addEventListener("click", async ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftForWeek(state.currentWeekOf);
-    rebuildStaffViewFromProviderDriven(payload);
-
-    const issues = validate(payload);
-    if(issues.length){
-      openModal({
-        title: `Fix before publish (${issues.length})`,
-        body: `<div class="muted" style="line-height:1.45">${issues.map(x=>`• ${escapeHtml(x)}`).join("<br>")}</div>`,
-        foot: `<button class="btn btnGhost" data-close="1">Close</button>`
-      });
-      return;
-    }
-
-    try{
-      await saveSchedule("published", payload);
-      toast("Published.");
-      await loadPublished(payload.weekOf);
+    item.addEventListener("click", () => {
+      state.selectedProviderId = provider.id;
       renderAll();
-    }catch(e){
-      console.error(e);
-      toast("Publish failed.");
-    }
-  });
-
-  $("#btnValidate").addEventListener("click", ()=>{
-    const payload = ensureDraftForWeek(state.currentWeekOf);
-    rebuildStaffViewFromProviderDriven(payload);
-    const issues = validate(payload);
-    if(!issues.length) return toast("Validation passed.");
-    openModal({
-      title: `Validation issues (${issues.length})`,
-      body: `<div class="muted" style="line-height:1.45">${issues.map(x=>`• ${escapeHtml(x)}`).join("<br>")}</div>`,
-      foot: `<button class="btn btnGhost" data-close="1">Close</button>`
     });
-  });
 
-  $("#btnClearWeek").addEventListener("click", ()=>{
-    if(!state.auth.editor) return toast("Not authorized.");
-    const payload = ensureDraftForWeek(state.currentWeekOf);
-
-    payload.providerAssignments = {};
-    payload.floatAssignments = defaultFloatAssignments();
-    payload.providerDone = {};
-    ensureProviderAssignmentsScaffold(payload);
-
-    toast("Cleared Draft Week.");
-    renderBuilder();
-  });
-
-  // Provider done toggles
-  $("#btnProviderMarkDone").addEventListener("click", ()=>{
-    const payload = ensureDraftForWeek(state.currentWeekOf);
-    if(!state.activeProviderId) return toast("Select a provider.");
-    payload.providerDone[state.activeProviderId] = true;
-    renderProviderList(payload);
-    toast("Marked done.");
-  });
-  $("#btnProviderMarkNotDone").addEventListener("click", ()=>{
-    const payload = ensureDraftForWeek(state.currentWeekOf);
-    if(!state.activeProviderId) return toast("Select a provider.");
-    payload.providerDone[state.activeProviderId] = false;
-    renderProviderList(payload);
-    toast("Marked not done.");
-  });
-
-  // Everyone filters
-  $("#roleFilter").addEventListener("change", renderEveryone);
-  $("#searchFilter").addEventListener("input", renderEveryone);
-
-  // Provider search
-  $("#providerSearch").addEventListener("input", (e)=>{
-    state.providerSearch = (e.target.value || "").trim().toLowerCase();
-    const payload = ensureDraftForWeek(state.currentWeekOf);
-    renderProviderList(payload);
-  });
-
-  // Modal close
-  $("#modal").addEventListener("click", (e)=>{
-    if(e.target?.dataset?.close) closeModal();
-  });
-}
-
-/* ---------------- Data model normalization ---------------- */
-
-function normalizeDraft(d){
-  d.weekOf = d.weekOf || state.currentWeekOf;
-  d.roster = d.roster || [];
-  d.providers = d.providers || [];
-  d.templates = d.templates || [];
-  d.entries = d.entries || {};
-  d.assignmentMeta = d.assignmentMeta || {};
-  d.timePresets = d.timePresets || DEFAULT_TIME_PRESETS.map(x=>({...x}));
-  d.providerAssignments = d.providerAssignments || {};
-  d.providerDone = d.providerDone || {};
-  d.floatAssignments = d.floatAssignments || defaultFloatAssignments();
-  ensureProviderAssignmentsScaffold(d);
-}
-
-function defaultFloatAssignments(){
-  const o = {};
-  DAYS.forEach(d=>{
-    o[d] = {
-      ma: { staffId:null, location:"", presetId:"" },
-      xr: { staffId:null, location:"", presetId:"", roomId:"" }
-    };
-  });
-  return o;
-}
-
-function ensureProviderAssignmentsScaffold(payload){
-  payload.providerAssignments = payload.providerAssignments || {};
-  payload.providerDone = payload.providerDone || {};
-  payload.floatAssignments = payload.floatAssignments || defaultFloatAssignments();
-  payload.timePresets = payload.timePresets || DEFAULT_TIME_PRESETS.map(x=>({...x}));
-
-  (payload.providers||[]).forEach(p=>{
-    if(!payload.providerAssignments[p.id]){
-      payload.providerAssignments[p.id] = {};
-      DAYS.forEach(d=>{
-        payload.providerAssignments[p.id][d] = defaultProviderDayCell();
-      });
-    }
-    if(payload.providerDone[p.id] === undefined) payload.providerDone[p.id] = false;
-  });
-
-  if(state.activeProviderId && !(payload.providers||[]).some(p=>p.id===state.activeProviderId)){
-    state.activeProviderId = null;
+    wrap.appendChild(item);
   }
 }
 
-function defaultProviderDayCell(){
-  return {
-    off:false,
-    // NEW UX: location + time first, then MA
-    maStaffId:null,
-    locA: "",
-    timeA: "",
-    segBEnabled:false,
-    locB: "",
-    timeB: "",
-    xrStaffId:null,
-    xrLocation:"",
-    xrRoomId:"",
-    xrTime:""
+function renderStaffPools() {
+  const maPool = $("maPool");
+  const xrtPool = $("xrtPool");
+  const floatPool = $("floatPool");
+
+  maPool.innerHTML = "";
+  xrtPool.innerHTML = "";
+  floatPool.innerHTML = "";
+
+  for (const staff of state.staff) {
+    const chip = document.createElement("div");
+    chip.className = `staff-chip ${staff.role === "XRT" ? "xrt" : "ma"} ${staff.isFloat ? "float" : ""}`;
+    chip.textContent = staff.name;
+
+    if (staff.isFloat) {
+      floatPool.appendChild(chip);
+    } else if (staff.role === "XRT") {
+      xrtPool.appendChild(chip);
+    } else {
+      maPool.appendChild(chip);
+    }
+  }
+}
+
+function getStatusBadgeClass(status) {
+  const map = {
+    "Scheduled": "badge-scheduled",
+    "OFF": "badge-off",
+    "PTO": "badge-pto",
+    "Holiday": "badge-holiday",
+    "Admin": "badge-admin",
+    "Call Only": "badge-call-only"
   };
+  return map[status] || "badge-scheduled";
 }
 
-/* ---------------- Rendering ---------------- */
+function renderSelectedProvider() {
+  const provider = getProviderById(state.selectedProviderId);
+  const nameEl = $("selectedProviderName");
+  const metaEl = $("selectedProviderMeta");
+  const infoEl = $("providerCompletionInfo");
+  const grid = $("selectedWeekGrid");
 
-function renderAll(){
-  renderMy();
-  renderEveryone();
-  renderBuilder();
-}
-
-function getActiveForViewing(){
-  return state.published;
-}
-
-/* ---------------- My / Everyone (staff-driven view) ---------------- */
-
-function renderMy(){
-  const sched = getActiveForViewing();
-  const meEmail = (state.auth.email || "").toLowerCase();
-
-  if(!state.auth.email){
-    $("#myMatchPill").textContent = "Not logged in";
-    $("#todayCard").innerHTML = `<div class="muted">Login required to view your schedule.</div>`;
-    $("#weekCards").innerHTML = `<div class="muted">Tap “Login”.</div>`;
+  if (!provider) {
+    nameEl.textContent = "Select a provider";
+    metaEl.textContent = "";
+    infoEl.textContent = "Select a provider";
+    grid.innerHTML = "";
     return;
   }
 
-  if(!sched?.roster?.length){
-    $("#myMatchPill").textContent = "—";
-    $("#todayCard").innerHTML = `<div class="muted">No published schedule found for ${escapeHtml(state.currentWeekOf)}.</div>`;
-    $("#weekCards").innerHTML = `<div class="muted">If you’re an editor, publish this week.</div>`;
-    return;
-  }
-
-  const me = sched.roster.find(r => (r.email || "").toLowerCase() === meEmail) || null;
-
-  if(!me){
-    $("#myMatchPill").textContent = "No match";
-    $("#todayCard").innerHTML = `<div class="muted">Your email (${escapeHtml(state.auth.email)}) isn’t mapped to roster.</div>`;
-    $("#weekCards").innerHTML = `<div class="muted">Ask an editor to add your email in Builder.</div>`;
-    return;
-  }
-
-  $("#myMatchPill").textContent = `${me.name} (${me.role})`;
-
-  const entries = sched.entries?.[me.id] || {};
-  const todayName = dayName(new Date());
-  const todayVal = (todayName && entries[todayName]) ? (templateTextById(sched, entries[todayName]) || "") : "";
-
-  $("#todayCard").innerHTML = `
-    <div style="font-weight:900">${formatLongDate(new Date())}</div>
-    <div style="margin-top:10px; font-size:16px; font-weight:900">${escapeHtml(todayVal || "No assignment today")}</div>
-  `;
-
-  $("#weekCards").innerHTML = DAYS.map(d=>{
-    const tid = entries[d];
-    const txt = tid ? templateTextById(sched, tid) : "—";
-    return `
-      <div class="dayCard">
-        <div>
-          <div class="dayName">${d}</div>
-          <div class="muted small">${escapeHtml(me.role)}</div>
-        </div>
-        <div class="dayValue">${escapeHtml(txt)}</div>
-      </div>
-    `;
-  }).join("");
-}
-
-function renderEveryone(){
-  const sched = getActiveForViewing();
-  const table = $("#everyoneGrid");
-  const thead = table.querySelector("thead");
-  const tbody = table.querySelector("tbody");
-
-  if(!sched?.roster?.length){
-    thead.innerHTML = "";
-    tbody.innerHTML = `<tr><td class="muted" style="padding:14px">No published schedule for ${escapeHtml(state.currentWeekOf)}.</td></tr>`;
-    return;
-  }
-
-  const role = $("#roleFilter").value;
-  const q = ($("#searchFilter").value || "").trim().toLowerCase();
-
-  const rows = sched.roster
-    .filter(r => role === "ALL" ? true : r.role === role)
-    .filter(r => !q ? true : r.name.toLowerCase().includes(q))
-    .slice()
-    .sort((a,b)=>a.name.localeCompare(b.name));
-
-  thead.innerHTML = `
-    <tr>
-      <th style="min-width:220px;text-align:left;">Team Member</th>
-      ${DAYS.map(d=>`<th style="min-width:260px;text-align:left;">${d}</th>`).join("")}
-    </tr>
-  `;
-
-  tbody.innerHTML = rows.map(r=>{
-    const e = sched.entries?.[r.id] || {};
-    return `
-      <tr>
-        <td class="nameCell">
-          ${escapeHtml(r.name)}
-          <span class="roleTag">${escapeHtml(r.role)}</span>
-        </td>
-        ${DAYS.map(d=>{
-          const tid = e[d];
-          const txt = tid ? templateTextById(sched, tid) : "";
-          return `<td>${escapeHtml(txt)}</td>`;
-        }).join("")}
-      </tr>
-    `;
-  }).join("");
-}
-
-/* ---------------- Builder ---------------- */
-
-function renderBuilder(){
-  if(!state.auth.editor){
-    $("#builderStatus").textContent = "Editors only";
-    return;
-  }
-
-  const week = state.currentWeekOf;
-  const draft = state.draft && state.draft.weekOf === week ? state.draft : null;
-  const pub = state.published && state.published.weekOf === week ? state.published : null;
-
-  $("#builderStatus").textContent =
-    draft ? "Draft loaded (editable)" :
-    pub ? "No draft loaded (published exists)" :
-    "No data loaded for this week";
-
-  if(!draft && pub){
-    state.draft = deepClone(pub);
-    normalizeDraft(state.draft);
-  }
-  if(!state.draft){
-    state.draft = {
-      weekOf: week,
-      roster: [],
-      providers: [],
-      timePresets: DEFAULT_TIME_PRESETS.map(x=>({...x})),
-      providerAssignments: {},
-      providerDone: {},
-      floatAssignments: defaultFloatAssignments(),
-      templates: [],
-      entries: {},
-      assignmentMeta: {}
-    };
-    normalizeDraft(state.draft);
-  }
-
-  const payload = state.draft;
-  normalizeDraft(payload);
-
-  renderRoster(payload);
-  renderTimePresets(payload);
-  renderLocations();
-
-  renderProviderList(payload);
-  renderActiveProvider(payload);
-  renderFloatPool(payload);
-}
-
-/* Provider list */
-
-function renderProviderList(payload){
-  const list = $("#providerList");
-  const providers = (payload.providers||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
-  const q = (state.providerSearch||"").toLowerCase();
-  const filtered = providers.filter(p => !q ? true : p.name.toLowerCase().includes(q));
-
-  if(!filtered.length){
-    list.innerHTML = `<div class="muted" style="padding:10px">No providers loaded.</div>`;
-    return;
-  }
-
-  list.innerHTML = filtered.map(p=>{
-    const done = isProviderComplete(payload, p.id) || !!payload.providerDone[p.id];
-    const isActive = state.activeProviderId === p.id;
-    return `
-      <div class="providerItem ${isActive ? "is-active":""}" data-provider="${escapeHtml(p.id)}">
-        <div>
-          <div class="providerName">${escapeHtml(p.name)}</div>
-          <div class="providerMeta">${done ? "Complete" : "Incomplete"}</div>
-        </div>
-        <div class="dot ${done ? "good" : "bad"}"></div>
-      </div>
-    `;
-  }).join("");
-
-  list.querySelectorAll("[data-provider]").forEach(el=>{
-    el.addEventListener("click", ()=>{
-      state.activeProviderId = el.dataset.provider;
-      renderProviderList(payload);
-      renderActiveProvider(payload);
-    });
-  });
-}
-
-/* Active provider table */
-function renderActiveProvider(payload){
-  const title = $("#activeProviderTitle");
-  const sub = $("#activeProviderSub");
-  const table = $("#providerWeekGrid");
-  const thead = table.querySelector("thead");
-  const tbody = table.querySelector("tbody");
-
-  if(!state.activeProviderId){
-    title.textContent = "Select a provider";
-    sub.textContent = "Then assign Mon–Fri";
-    thead.innerHTML = "";
-    tbody.innerHTML = `<tr><td class="muted" style="padding:14px">Pick a provider from the left.</td></tr>`;
-    return;
-  }
-
-  const provider = (payload.providers||[]).find(p=>p.id===state.activeProviderId);
-  if(!provider){
-    state.activeProviderId = null;
-    return renderActiveProvider(payload);
-  }
-
-  title.textContent = provider.name;
-  sub.textContent = `Per day: Location + Time first, then MA. Segment B optional.`;
-
-  thead.innerHTML = `
-    <tr>
-      <th style="min-width:120px">Day</th>
-      <th style="min-width:280px">Provider Location + Time</th>
-      <th style="min-width:210px">MA</th>
-      <th style="min-width:320px">Segment B (optional)</th>
-      <th style="min-width:320px">XR Room (optional)</th>
-      <th style="min-width:140px">Actions</th>
-    </tr>
-  `;
-
-  tbody.innerHTML = DAYS.map(day=>{
-    const c = payload.providerAssignments[provider.id][day];
-
-    const primary = c.off ? "OFF" : primaryLabel(payload, c);
-    const maName = c.off ? "—" : staffLabel(payload, c.maStaffId, "MA");
-    const segB = c.off ? "—" : segBLabel(payload, c);
-
-    const xr = c.off ? "—" : xrLabel(payload, c);
-
-    const done = isProviderCompleteDay(payload, provider.id, day);
-
-    return `
-      <tr>
-        <td style="font-weight:900">${day} ${done ? `<span class="roleTag" style="margin-left:8px; border-color: rgba(31,157,85,.7); background: rgba(31,157,85,.18)">Done</span>` : ""}</td>
-        <td><div style="font-weight:900">${escapeHtml(primary)}</div></td>
-        <td><div style="font-weight:900">${escapeHtml(maName)}</div></td>
-        <td><div style="font-weight:900">${escapeHtml(segB)}</div></td>
-        <td><div style="font-weight:900">${escapeHtml(xr)}</div></td>
-        <td>
-          <button class="btn btnSmall btnGhost" data-edit="${provider.id}" data-day="${day}">Edit</button>
-          <button class="btn btnSmall btnGhost" data-clear="${provider.id}" data-day="${day}">Clear</button>
-        </td>
-      </tr>
-    `;
-  }).join("");
-
-  tbody.querySelectorAll("[data-edit]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      openProviderDayModal(payload, btn.dataset.edit, btn.dataset.day);
-    });
-  });
-
-  tbody.querySelectorAll("[data-clear]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const pid = btn.dataset.clear;
-      const day = btn.dataset.day;
-      payload.providerAssignments[pid][day] = defaultProviderDayCell();
-      payload.providerDone[pid] = false;
-      renderProviderList(payload);
-      renderActiveProvider(payload);
-      renderFloatPool(payload);
-    });
-  });
-}
-
-function primaryLabel(payload, c){
-  if(!c.locA || !c.timeA) return "—";
-  const p = findPreset(payload, c.timeA);
-  return `${c.locA} • ${p ? p.label : ""}`.trim();
-}
-function segBLabel(payload, c){
-  if(!c.segBEnabled) return "—";
-  const p = findPreset(payload, c.timeB);
-  if(!c.locB || !c.timeB) return "—";
-  return `${c.locB} • ${p ? p.label : ""}`.trim();
-}
-
-/* ---------------- Provider day modal: LOCATION + TIME first, then MA ---------------- */
-
-function openProviderDayModal(payload, providerId, day){
-  const provider = payload.providers.find(p=>p.id===providerId);
-  if(!provider) return;
-
-  openModal({
-    title: `${provider.name} • ${day}`,
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Status</label>
-        <select id="pStatus">
-          <option value="WORK" ${!payload.providerAssignments[providerId][day].off?"selected":""}>Working</option>
-          <option value="OFF" ${payload.providerAssignments[providerId][day].off?"selected":""}>OFF</option>
-        </select>
-        <div class="hint">OFF clears assignments for this provider/day.</div>
-      </div>
-
-      <div id="pWork">
-        <div class="row" style="padding:0; margin-top:12px; gap:12px">
-          <div class="field grow" style="min-width:240px">
-            <label>Provider Location (required)</label>
-            <select id="pLocA">
-              ${locationOptionsHTML(payload.providerAssignments[providerId][day].locA)}
-            </select>
-          </div>
-
-          <div class="field" style="min-width:220px">
-            <label>Provider Time (required)</label>
-            <select id="pTimeA">
-              ${presetOptions(payload, payload.providerAssignments[providerId][day].timeA)}
-            </select>
-          </div>
-
-          <div class="field grow" style="min-width:240px">
-            <label>MA (required)</label>
-            <select id="pMA"></select>
-            <div class="hint">Once assigned, MA is locked for this day across other providers.</div>
-          </div>
-        </div>
-
-        <div class="field" style="min-width:100%; margin-top:12px">
-          <label>Two locations same day?</label>
-          <select id="pSegBEnabled">
-            <option value="NO" ${!payload.providerAssignments[providerId][day].segBEnabled?"selected":""}>No</option>
-            <option value="YES" ${payload.providerAssignments[providerId][day].segBEnabled?"selected":""}>Yes (Segment B)</option>
-          </select>
-          <div class="hint">Use Segment B when provider moves locations same day. MA follows provider.</div>
-        </div>
-
-        <div id="pSegBRow" class="row" style="padding:0; margin-top:12px; gap:12px">
-          <div class="field grow" style="min-width:240px">
-            <label>Segment B Location (required if enabled)</label>
-            <select id="pLocB">${locationOptionsHTML(payload.providerAssignments[providerId][day].locB)}</select>
-          </div>
-          <div class="field" style="min-width:220px">
-            <label>Segment B Time (required if enabled)</label>
-            <select id="pTimeB">${presetOptions(payload, payload.providerAssignments[providerId][day].timeB)}</select>
-          </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="row" style="padding:0; margin-top:12px; gap:12px">
-          <div class="field grow" style="min-width:240px">
-            <label>XR Staff (optional)</label>
-            <select id="pXR"></select>
-          </div>
-
-          <div class="field grow" style="min-width:240px">
-            <label>XR Location</label>
-            <select id="pXRLoc">${locationOptionsHTML(payload.providerAssignments[providerId][day].xrLocation)}</select>
-          </div>
-
-          <div class="field" style="min-width:200px">
-            <label>XR Room</label>
-            <select id="pXRRoom">${xrRoomOptions(payload.providerAssignments[providerId][day].xrRoomId)}</select>
-          </div>
-
-          <div class="field" style="min-width:220px">
-            <label>XR Time</label>
-            <select id="pXRTime">${presetOptions(payload, payload.providerAssignments[providerId][day].xrTime)}</select>
-          </div>
-        </div>
-      </div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn btnGhost" id="pClear">Clear Day</button>
-      <button class="btn" id="pSave">Save</button>
-    `,
-    onAfter(){
-      const c = payload.providerAssignments[providerId][day];
-
-      const statusSel = $("#pStatus");
-      const workWrap = $("#pWork");
-      const segBEnabledSel = $("#pSegBEnabled");
-      const segBRow = $("#pSegBRow");
-
-      const locA = $("#pLocA");
-      const timeA = $("#pTimeA");
-      const maSel = $("#pMA");
-
-      const xrSel = $("#pXR");
-
-      // Populate MA/XR dropdowns with lock enforcement,
-      // but do it *after* modal is visible so we can react to location/time changes if needed.
-      const refreshStaffOptions = ()=>{
-        maSel.innerHTML = staffOptions(payload, "MA", c.maStaffId, day, providerId);
-        xrSel.innerHTML = staffOptions(payload, "XR", c.xrStaffId, day, providerId, true);
-      };
-      refreshStaffOptions();
-
-      const sync = ()=>{
-        const off = statusSel.value === "OFF";
-        workWrap.style.display = off ? "none" : "";
-        segBRow.style.display = (segBEnabledSel.value === "YES") ? "" : "none";
-      };
-      statusSel.addEventListener("change", sync);
-      segBEnabledSel.addEventListener("change", sync);
-      sync();
-
-      $("#pClear").addEventListener("click", ()=>{
-        payload.providerAssignments[providerId][day] = defaultProviderDayCell();
-        payload.providerDone[providerId] = false;
-        closeModal();
-        renderProviderList(payload);
-        renderActiveProvider(payload);
-        renderFloatPool(payload);
-      });
-
-      $("#pSave").addEventListener("click", ()=>{
-        const off = (statusSel.value === "OFF");
-        if(off){
-          payload.providerAssignments[providerId][day] = defaultProviderDayCell();
-          payload.providerAssignments[providerId][day].off = true;
-          payload.providerDone[providerId] = false;
-          closeModal();
-          renderProviderList(payload);
-          renderActiveProvider(payload);
-          renderFloatPool(payload);
-          return;
-        }
-
-        // LOCATION + TIME first
-        const newLocA = (locA.value||"").trim();
-        const newTimeA = (timeA.value||"").trim();
-        if(!newLocA) return toast("Provider location is required.");
-        if(!newTimeA) return toast("Provider time is required.");
-
-        // Then MA
-        const newMA = (maSel.value||"").trim() || null;
-        if(!newMA) return toast("MA is required.");
-
-        // Lock enforcement
-        if(isStaffLockedForDay(payload, newMA, day, "MA", providerId)){
-          return toast("That MA is already assigned to another provider for this day.");
-        }
-
-        const segBEnabled = (segBEnabledSel.value === "YES");
-        const newLocB = (segBEnabled ? ($("#pLocB").value||"").trim() : "");
-        const newTimeB = (segBEnabled ? ($("#pTimeB").value||"").trim() : "");
-        if(segBEnabled){
-          if(!newLocB) return toast("Segment B location is required.");
-          if(!newTimeB) return toast("Segment B time is required.");
-        }
-
-        const newXR = ($("#pXR").value||"").trim() || null;
-        const newXRLoc = ($("#pXRLoc").value||"").trim();
-        const newXRRoom = ($("#pXRRoom").value||"").trim();
-        const newXRTime = ($("#pXRTime").value||"").trim();
-
-        if(newXR){
-          if(isStaffLockedForDay(payload, newXR, day, "XR", providerId)){
-            return toast("That XR staff is already assigned to another provider for this day.");
-          }
-          if(!newXRLoc || !newXRRoom || !newXRTime){
-            return toast("XR requires location + room + time.");
-          }
-        }
-
-        payload.providerAssignments[providerId][day] = {
-          off:false,
-          maStaffId: newMA,
-          locA: newLocA,
-          timeA: newTimeA,
-          segBEnabled,
-          locB: newLocB,
-          timeB: newTimeB,
-          xrStaffId: newXR,
-          xrLocation: newXR ? newXRLoc : "",
-          xrRoomId: newXR ? newXRRoom : "",
-          xrTime: newXR ? newXRTime : ""
-        };
-
-        closeModal();
-        renderProviderList(payload);
-        renderActiveProvider(payload);
-        renderFloatPool(payload);
-      });
+  const status = providerCompletion(provider.id);
+
+  nameEl.textContent = provider.name;
+  metaEl.textContent = [provider.location, provider.specialty].filter(Boolean).join(" • ");
+  infoEl.textContent = status.text;
+
+  grid.innerHTML = "";
+
+  for (const day of DAYS) {
+    const entry = getEntry(provider.id, day);
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "day-card";
+
+    const statusClass = getStatusBadgeClass(entry.status);
+
+    const bodyLines = [];
+
+    if (NON_SCHEDULED_STATUSES.has(entry.status)) {
+      bodyLines.push(`<div class="day-line"><strong>Status</strong>${escapeHtml(entry.status)}</div>`);
+      if (entry.notes) bodyLines.push(`<div class="day-line"><strong>Notes</strong>${escapeHtml(entry.notes)}</div>`);
+    } else {
+      bodyLines.push(`<div class="day-line"><strong>MA</strong>${escapeHtml(entry.maName || "Not assigned")}</div>`);
+      bodyLines.push(`<div class="day-line"><strong>Location</strong>${escapeHtml(entry.location || "Not selected")}</div>`);
+      bodyLines.push(`<div class="day-line"><strong>Shift</strong>${escapeHtml(entry.time || "Not selected")}</div>`);
+      bodyLines.push(`<div class="day-line"><strong>XRT</strong>${escapeHtml(entry.xrtName || "Optional")}</div>`);
+      if (entry.xrRoom) bodyLines.push(`<div class="day-line"><strong>XR Room</strong>${escapeHtml(entry.xrRoom)}</div>`);
+      if (entry.secondaryLocation) bodyLines.push(`<div class="day-line"><strong>2nd Location</strong>${escapeHtml(entry.secondaryLocation)}</div>`);
     }
-  });
+
+    card.innerHTML = `
+      <div class="day-card-head">
+        <div class="day-card-name">${escapeHtml(day)}</div>
+        <div class="day-card-status ${statusClass}">${escapeHtml(entry.status)}</div>
+      </div>
+      <div class="day-card-body">${bodyLines.join("")}</div>
+    `;
+
+    card.addEventListener("click", () => openDayModal(provider.id, day));
+    grid.appendChild(card);
+  }
 }
 
-/* ---------------- Completion rules ---------------- */
+function renderReviewGrid() {
+  const wrap = $("reviewGridWrap");
 
-function isProviderComplete(payload, providerId){
-  return DAYS.every(d => isProviderCompleteDay(payload, providerId, d));
+  const html = `
+    <table class="review-grid">
+      <thead>
+        <tr>
+          <th>Provider</th>
+          ${DAYS.map(day => `<th>${escapeHtml(day)}</th>`).join("")}
+        </tr>
+      </thead>
+      <tbody>
+        ${state.providers.map(provider => `
+          <tr>
+            <td class="review-provider">${escapeHtml(provider.name)}</td>
+            ${DAYS.map(day => {
+              const e = getEntry(provider.id, day);
+              const badgeClass = getStatusBadgeClass(e.status);
+              return `
+                <td class="review-cell">
+                  <div class="review-cell-box">
+                    <span class="review-mini-badge ${badgeClass}">${escapeHtml(e.status)}</span>
+                    ${
+                      NON_SCHEDULED_STATUSES.has(e.status)
+                        ? `${e.notes ? `<div>${escapeHtml(e.notes)}</div>` : `<div>—</div>`}`
+                        : `
+                          <div><strong>MA:</strong> ${escapeHtml(e.maName || "—")}</div>
+                          <div><strong>Loc:</strong> ${escapeHtml(e.location || "—")}</div>
+                          <div><strong>Time:</strong> ${escapeHtml(e.time || "—")}</div>
+                          <div><strong>XRT:</strong> ${escapeHtml(e.xrtName || "—")}</div>
+                        `
+                    }
+                  </div>
+                </td>
+              `;
+            }).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+
+  wrap.innerHTML = html;
 }
 
-function isProviderCompleteDay(payload, providerId, day){
-  const c = payload.providerAssignments?.[providerId]?.[day];
-  if(!c) return false;
-  if(c.off) return true;
+function renderAll() {
+  renderProviderList();
+  renderStaffPools();
+  renderSelectedProvider();
+  renderReviewGrid();
+}
 
-  // Must have provider location+time and MA
-  if(!c.locA || !c.timeA) return false;
-  if(!c.maStaffId) return false;
+function createTimeOptions(selectedValue) {
+  const options = [...new Set(state.timePresets)];
+  return options.map(v => `<option value="${escapeHtml(v)}" ${v === selectedValue ? "selected" : ""}>${escapeHtml(v)}</option>`).join("");
+}
 
-  if(c.segBEnabled){
-    if(!c.locB || !c.timeB) return false;
+function createLocationOptions(provider, selectedValue) {
+  const locations = getLocations(provider);
+  const merged = [...new Set(["", ...locations])];
+  return merged.map(v => {
+    const label = v || "Select location";
+    return `<option value="${escapeHtml(v)}" ${v === selectedValue ? "selected" : ""}>${escapeHtml(label)}</option>`;
+  }).join("");
+}
+
+function createMAOptions(day, providerId, selectedId) {
+  const options = ['<option value="">Select MA</option>'];
+
+  const items = state.staff.filter(s => s.role === "MA");
+  for (const staff of items) {
+    const conflict = isMAConflict(staff.id, day, providerId);
+    const disabled = conflict && staff.id !== selectedId;
+    const label = disabled ? `${staff.name} — Already assigned ${day}` : staff.name;
+    options.push(`<option value="${escapeHtml(staff.id)}" ${staff.id === selectedId ? "selected" : ""} ${disabled ? "disabled" : ""}>${escapeHtml(label)}</option>`);
   }
 
-  if(c.xrStaffId){
-    if(!c.xrLocation || !c.xrRoomId || !c.xrTime) return false;
+  return options.join("");
+}
+
+function createXRTOptions(selectedId) {
+  const options = ['<option value="">Select XRT</option>'];
+  const items = state.staff.filter(s => s.role === "XRT");
+  for (const staff of items) {
+    options.push(`<option value="${escapeHtml(staff.id)}" ${staff.id === selectedId ? "selected" : ""}>${escapeHtml(staff.name)}</option>`);
   }
+  return options.join("");
+}
+
+function openDayModal(providerId, day) {
+  state.modal.providerId = providerId;
+  state.modal.day = day;
+
+  const provider = getProviderById(providerId);
+  const entry = getEntry(providerId, day);
+
+  $("modalDayTitle").textContent = `${provider?.name || "Provider"} — ${day}`;
+  $("modalDaySub").textContent = `Week of ${state.weekOf}`;
+
+  $("modalStatus").value = entry.status || "Scheduled";
+  $("modalLocation").innerHTML = createLocationOptions(provider, entry.location);
+  $("modalMa").innerHTML = createMAOptions(day, providerId, entry.maId);
+  $("modalTime").innerHTML = createTimeOptions(entry.time);
+  $("modalXrt").innerHTML = createXRTOptions(entry.xrtId);
+  $("modalXrRoom").value = entry.xrRoom || "";
+  $("modalSecondaryLocation").value = entry.secondaryLocation || "";
+  $("modalNotes").value = entry.notes || "";
+
+  updateModalFieldState(entry.status);
+
+  $("dayModal").classList.remove("hidden");
+  $("dayModal").setAttribute("aria-hidden", "false");
+}
+
+function closeDayModal() {
+  $("dayModal").classList.add("hidden");
+  $("dayModal").setAttribute("aria-hidden", "true");
+}
+
+function updateModalFieldState(status) {
+  const disabled = NON_SCHEDULED_STATUSES.has(status);
+
+  $("modalLocation").disabled = disabled;
+  $("modalMa").disabled = disabled;
+  $("modalTime").disabled = disabled;
+  $("modalXrt").disabled = disabled;
+  $("modalXrRoom").disabled = disabled;
+  $("modalSecondaryLocation").disabled = disabled;
+
+  $("nonScheduledMessage").classList.toggle("hidden", !disabled);
+}
+
+function saveModalDay() {
+  const providerId = state.modal.providerId;
+  const day = state.modal.day;
+  const entry = getEntry(providerId, day);
+
+  const newStatus = $("modalStatus").value;
+  const wasScheduled = entry.status === "Scheduled";
+  const willBeScheduled = newStatus === "Scheduled";
+
+  entry.status = newStatus;
+  entry.notes = $("modalNotes").value.trim();
+
+  if (!willBeScheduled) {
+    clearStaffingFields(entry);
+    entry.status = newStatus;
+    entry.notes = $("modalNotes").value.trim();
+  } else {
+    const maId = $("modalMa").value;
+    const ma = getStaffById(maId);
+    const xrtId = $("modalXrt").value;
+    const xrt = getStaffById(xrtId);
+
+    if (maId && isMAConflict(maId, day, providerId)) {
+      alert(`${ma?.name || maId} is already assigned on ${day}.`);
+      return false;
+    }
+
+    entry.location = $("modalLocation").value;
+    entry.maId = maId || "";
+    entry.maName = ma?.name || "";
+    entry.time = $("modalTime").value;
+    entry.xrtId = xrtId || "";
+    entry.xrtName = xrt?.name || "";
+    entry.xrRoom = $("modalXrRoom").value.trim();
+    entry.secondaryLocation = $("modalSecondaryLocation").value.trim();
+    entry.notes = $("modalNotes").value.trim();
+  }
+
+  if (wasScheduled && !willBeScheduled) {
+    // already cleared above
+  }
+
+  renderAll();
   return true;
 }
 
-function computeAllProvidersCoveredByDay(payload){
-  const out = {};
-  const providers = payload.providers || [];
-  DAYS.forEach(day=>{
-    out[day] = providers.every(p => isProviderCompleteDay(payload, p.id, day));
-  });
-  return out;
-}
+function moveModalDay(step) {
+  const idx = DAYS.indexOf(state.modal.day);
+  if (idx === -1) return;
 
-/* ---------------- Locks (Safeguard) ---------------- */
-
-function computeDayLocks(payload){
-  const locks = {};
-  DAYS.forEach(d=>{
-    locks[d] = { MA: new Set(), XR: new Set() };
-  });
-
-  for(const pid of Object.keys(payload.providerAssignments||{})){
-    for(const day of DAYS){
-      const c = payload.providerAssignments[pid][day];
-      if(!c || c.off) continue;
-      if(c.maStaffId) locks[day].MA.add(c.maStaffId);
-      if(c.xrStaffId) locks[day].XR.add(c.xrStaffId);
-    }
-  }
-
-  for(const day of DAYS){
-    const f = payload.floatAssignments?.[day];
-    if(f?.ma?.staffId) locks[day].MA.add(f.ma.staffId);
-    if(f?.xr?.staffId) locks[day].XR.add(f.xr.staffId);
-  }
-
-  return locks;
-}
-
-function isStaffLockedForDay(payload, staffId, day, role, currentProviderId){
-  for(const pid of Object.keys(payload.providerAssignments||{})){
-    const c = payload.providerAssignments[pid][day];
-    if(!c || c.off) continue;
-
-    if(role === "MA" && c.maStaffId === staffId){
-      if(pid !== currentProviderId) return true;
-    }
-    if(role === "XR" && c.xrStaffId === staffId){
-      if(pid !== currentProviderId) return true;
-    }
-  }
-
-  const f = payload.floatAssignments?.[day];
-  if(role==="MA" && f?.ma?.staffId === staffId) return true;
-  if(role==="XR" && f?.xr?.staffId === staffId) return true;
-
-  return false;
-}
-
-/* ---------------- Float pool ---------------- */
-
-function renderFloatPool(payload){
-  const box = $("#floatBox");
-  const allCovered = computeAllProvidersCoveredByDay(payload);
-
-  box.innerHTML = DAYS.map(day=>{
-    const ok = allCovered[day];
-    const float = payload.floatAssignments[day];
-
-    return `
-      <div class="floatRow">
-        <div class="floatRowTitle">${day}</div>
-        <div class="muted small">${ok ? "All providers covered: Float allowed" : "Providers still missing: Float blocked"}</div>
-
-        <div class="row" style="padding:0; gap:10px; margin-top:8px">
-          <div class="field grow" style="min-width:220px">
-            <label>Float MA</label>
-            <select data-float-ma="${day}" ${ok ? "" : "disabled"}>
-              ${staffOptions(payload, "MA", float.ma.staffId, day, "__FLOAT__")}
-            </select>
-          </div>
-          <div class="field grow" style="min-width:220px">
-            <label>Location</label>
-            <select data-float-ma-loc="${day}" ${ok ? "" : "disabled"}>
-              ${locationOptionsHTML(float.ma.location)}
-            </select>
-          </div>
-          <div class="field" style="min-width:200px">
-            <label>Time</label>
-            <select data-float-ma-time="${day}" ${ok ? "" : "disabled"}>
-              ${presetOptions(payload, float.ma.presetId)}
-            </select>
-          </div>
-        </div>
-
-        <div class="row" style="padding:0; gap:10px; margin-top:10px">
-          <div class="field grow" style="min-width:220px">
-            <label>Float XR</label>
-            <select data-float-xr="${day}" ${ok ? "" : "disabled"}>
-              ${staffOptions(payload, "XR", float.xr.staffId, day, "__FLOAT__", true)}
-            </select>
-          </div>
-          <div class="field grow" style="min-width:220px">
-            <label>Location</label>
-            <select data-float-xr-loc="${day}" ${ok ? "" : "disabled"}>
-              ${locationOptionsHTML(float.xr.location)}
-            </select>
-          </div>
-          <div class="field" style="min-width:200px">
-            <label>Time</label>
-            <select data-float-xr-time="${day}" ${ok ? "" : "disabled"}>
-              ${presetOptions(payload, float.xr.presetId)}
-            </select>
-          </div>
-          <div class="field" style="min-width:200px">
-            <label>XR Room</label>
-            <select data-float-xr-room="${day}" ${ok ? "" : "disabled"}>
-              ${xrRoomOptions(float.xr.roomId)}
-            </select>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  DAYS.forEach(day=>{
-    if(!allCovered[day]) return;
-
-    const selMA = box.querySelector(`[data-float-ma="${day}"]`);
-    const selMALoc = box.querySelector(`[data-float-ma-loc="${day}"]`);
-    const selMATime = box.querySelector(`[data-float-ma-time="${day}"]`);
-
-    const selXR = box.querySelector(`[data-float-xr="${day}"]`);
-    const selXRLoc = box.querySelector(`[data-float-xr-loc="${day}"]`);
-    const selXRTime = box.querySelector(`[data-float-xr-time="${day}"]`);
-    const selXRRoom = box.querySelector(`[data-float-xr-room="${day}"]`);
-
-    selMA?.addEventListener("change", ()=>{
-      payload.floatAssignments[day].ma.staffId = selMA.value || null;
-      renderFloatPool(payload);
-      renderActiveProvider(payload);
-    });
-    selMALoc?.addEventListener("change", ()=>{
-      payload.floatAssignments[day].ma.location = selMALoc.value || "";
-    });
-    selMATime?.addEventListener("change", ()=>{
-      payload.floatAssignments[day].ma.presetId = selMATime.value || "";
-    });
-
-    selXR?.addEventListener("change", ()=>{
-      payload.floatAssignments[day].xr.staffId = selXR.value || null;
-      renderFloatPool(payload);
-      renderActiveProvider(payload);
-    });
-    selXRLoc?.addEventListener("change", ()=>{
-      payload.floatAssignments[day].xr.location = selXRLoc.value || "";
-    });
-    selXRTime?.addEventListener("change", ()=>{
-      payload.floatAssignments[day].xr.presetId = selXRTime.value || "";
-    });
-    selXRRoom?.addEventListener("change", ()=>{
-      payload.floatAssignments[day].xr.roomId = selXRRoom.value || "";
-    });
-  });
-}
-
-/* ---------------- Roster + role editing ---------------- */
-
-function renderRoster(payload){
-  const wrap = $("#rosterEmailList");
-  const roster = (payload.roster||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
-  if(!roster.length){
-    wrap.innerHTML = `<div class="muted" style="padding:10px">No staff loaded. Import staff.</div>`;
+  const nextIdx = idx + step;
+  if (nextIdx < 0 || nextIdx >= DAYS.length) {
+    closeDayModal();
     return;
   }
 
-  const locks = computeDayLocks(payload);
+  const ok = saveModalDay();
+  if (!ok) return;
 
-  wrap.innerHTML = roster.map(r=>{
-    const lockedDays = DAYS.filter(d => (locks[d]?.[r.role] || new Set()).has(r.id));
-    const lockMsg = lockedDays.length ? `Locked: ${lockedDays.join(", ")}` : `Not locked this week`;
-
-    return `
-      <div class="rosterItem">
-        <div class="rosterTop">
-          <div>
-            <div class="rosterName">${escapeHtml(r.name)} <span class="roleTag">${escapeHtml(r.role)}</span></div>
-            <div class="muted small" style="margin-top:4px">${escapeHtml(r.email || "")}</div>
-            <div class="lockPill">🔒 ${escapeHtml(lockMsg)}</div>
-          </div>
-          <div class="field" style="min-width:120px; margin:0">
-            <label>Role</label>
-            <select data-role-for="${escapeHtml(r.id)}">
-              <option value="MA" ${r.role==="MA"?"selected":""}>MA</option>
-              <option value="XR" ${r.role==="XR"?"selected":""}>XR</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="field" style="margin-top:10px">
-          <label>Email</label>
-          <input data-email-for="${escapeHtml(r.id)}" type="email" placeholder="name@laorthos.com" value="${escapeHtml(r.email || "")}" />
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  wrap.querySelectorAll("input[data-email-for]").forEach(inp=>{
-    inp.addEventListener("input", ()=>{
-      const id = inp.dataset.emailFor;
-      const person = payload.roster.find(x=>x.id===id);
-      if(person) person.email = (inp.value||"").trim();
-    });
-  });
-
-  wrap.querySelectorAll("select[data-role-for]").forEach(sel=>{
-    sel.addEventListener("change", ()=>{
-      const id = sel.dataset.roleFor;
-      const person = payload.roster.find(x=>x.id===id);
-      if(!person) return;
-      person.role = sel.value;
-      toast(`${person.name} role set to ${person.role}`);
-      renderRoster(payload);
-      renderActiveProvider(payload);
-      renderFloatPool(payload);
-    });
-  });
+  openDayModal(state.modal.providerId, DAYS[nextIdx]);
 }
 
-/* ---------------- Time presets ---------------- */
-
-function renderTimePresets(payload){
-  const list = $("#presetList");
-  payload.timePresets = payload.timePresets || DEFAULT_TIME_PRESETS.map(x=>({...x}));
-
-  list.innerHTML = payload.timePresets.map(p=>`
-    <div class="presetItem">
-      <div>
-        <div class="presetName">${escapeHtml(p.label)}</div>
-        <div class="muted small">${escapeHtml(p.start)} → ${escapeHtml(p.end)}</div>
-      </div>
-      <button class="iconBtn" title="Delete" data-del-preset="${escapeHtml(p.id)}">🗑</button>
-    </div>
-  `).join("");
-
-  list.querySelectorAll("[data-del-preset]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const id = btn.dataset.delPreset;
-      if(isPresetUsed(payload, id)){
-        toast("Preset is used in schedule. Clear assignments first.");
-        return;
-      }
-      payload.timePresets = payload.timePresets.filter(x=>x.id !== id);
-      toast("Preset deleted.");
-      renderTimePresets(payload);
-      renderActiveProvider(payload);
-      renderFloatPool(payload);
-    });
-  });
+function addPreset() {
+  const input = $("timePresetBuilder");
+  const value = input.value.trim();
+  if (!value) return;
+  if (!state.timePresets.includes(value)) state.timePresets.push(value);
+  input.value = "";
 }
 
-function isPresetUsed(payload, presetId){
-  for(const pid of Object.keys(payload.providerAssignments||{})){
-    for(const day of DAYS){
-      const c = payload.providerAssignments[pid][day];
-      if(!c || c.off) continue;
-      if(c.timeA===presetId) return true;
-      if(c.segBEnabled && c.timeB===presetId) return true;
-      if(c.xrTime===presetId) return true;
+function setWholeWeekStatus(providerId, status) {
+  for (const day of DAYS) {
+    const entry = getEntry(providerId, day);
+    entry.status = status;
+
+    if (status !== "Scheduled") {
+      clearStaffingFields(entry);
+      entry.status = status;
     }
   }
-  for(const day of DAYS){
-    const f = payload.floatAssignments?.[day];
-    if(f?.ma?.presetId===presetId) return true;
-    if(f?.xr?.presetId===presetId) return true;
+  renderAll();
+}
+
+function clearWholeWeek(providerId) {
+  for (const day of DAYS) {
+    const entry = getEntry(providerId, day);
+    entry.status = "Scheduled";
+    clearStaffingFields(entry);
+    entry.status = "Scheduled";
   }
-  return false;
+  renderAll();
 }
 
-/* ---------------- Locations ---------------- */
-
-function renderLocations(){
-  $("#locationList").innerHTML = LOCATIONS.map(l=>`
-    <div class="locationChip">${escapeHtml(l.name)} <span>${escapeHtml(l.code)}</span></div>
-  `).join("");
+async function saveWeek() {
+  const payload = getWeekPayload();
+  await apiPost("/api/schedule", {
+    weekOf: state.weekOf,
+    items: payload
+  });
+  setSaveStatus(`Saved week of ${state.weekOf}`, true);
 }
 
-/* ---------------- Staff / provider CSV parsing ---------------- */
+function wireEvents() {
+  $("weekPicker").addEventListener("change", async (e) => {
+    state.weekOf = startOfWeek(e.target.value);
+    $("weekPicker").value = state.weekOf;
+    await loadWeek();
+  });
 
-function parseStaffCSV(text){
-  const rows = csvToRows(text).filter(r => r.some(x => (x||"").trim() !== ""));
-  if(!rows.length) return [];
+  $("providerSearch").addEventListener("input", (e) => {
+    state.filters.providerSearch = e.target.value;
+    renderProviderList();
+  });
 
-  const header = rows[0].map(x => (x||"").trim().toLowerCase());
-  const idxFirst = header.findIndex(h => ["first name","firstname","first"].includes(h));
-  const idxLast = header.findIndex(h => ["last name","lastname","last"].includes(h));
-  const idxEmail = header.findIndex(h => ["email","e-mail","user principal name","upn"].includes(h));
-  const idxRole = header.findIndex(h => ["role","staff role","type"].includes(h));
+  $("btnRefresh").addEventListener("click", async () => {
+    await Promise.all([loadProviders(), loadStaff()]);
+    await loadWeek();
+  });
 
-  if(idxEmail < 0) throw new Error("No Email column found.");
-
-  const out = [];
-  for(let i=1;i<rows.length;i++){
-    const r = rows[i];
-    const email = (r[idxEmail]||"").trim();
-    if(!email) continue;
-
-    const first = idxFirst >= 0 ? (r[idxFirst]||"").trim() : "";
-    const last = idxLast >= 0 ? (r[idxLast]||"").trim() : "";
-    const name = (first || last) ? `${first} ${last}`.trim() : email.split("@")[0];
-
-    let role = "";
-    if(idxRole >= 0){
-      role = (r[idxRole]||"").trim().toUpperCase();
-      if(role === "XRT") role = "XR";
-      if(role !== "MA" && role !== "XR") role = "";
+  $("btnSave").addEventListener("click", async () => {
+    try {
+      setSaveStatus("Saving...");
+      await saveWeek();
+    } catch (err) {
+      console.error(err);
+      setSaveStatus("Save failed");
+      alert(err.message || "Unable to save schedule.");
     }
+  });
 
-    out.push({ name, email, role });
-  }
-  return out;
-}
+  $("btnAddPreset").addEventListener("click", () => {
+    addPreset();
+  });
 
-function mergeStaffIntoRoster(payload, staff, { defaultRole="MA" } = {}){
-  payload.roster = payload.roster || [];
-  const existingByEmail = new Map(payload.roster.map(r => [(r.email||"").toLowerCase(), r]));
+  $("timePresetBuilder").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addPreset();
+  });
 
-  staff.forEach(s=>{
-    const email = (s.email||"").trim();
-    if(!email) return;
-    const key = email.toLowerCase();
+  $("btnWeekScheduled").addEventListener("click", () => {
+    if (!state.selectedProviderId) return;
+    setWholeWeekStatus(state.selectedProviderId, "Scheduled");
+  });
 
-    if(existingByEmail.has(key)){
-      const person = existingByEmail.get(key);
-      if(s.name) person.name = s.name;
-      if(s.role) person.role = s.role;
-      if(!person.role) person.role = defaultRole;
-      return;
-    }
+  $("btnWeekOff").addEventListener("click", () => {
+    if (!state.selectedProviderId) return;
+    setWholeWeekStatus(state.selectedProviderId, "OFF");
+  });
 
-    const name = (s.name||"").trim() || email.split("@")[0];
-    const idBase = slug(name);
-    const id = payload.roster.some(r=>r.id===idBase) ? `${idBase}-${Math.random().toString(16).slice(2,6)}` : idBase;
+  $("btnWeekPto").addEventListener("click", () => {
+    if (!state.selectedProviderId) return;
+    setWholeWeekStatus(state.selectedProviderId, "PTO");
+  });
 
-    payload.roster.push({ id, name, role: s.role || defaultRole, email });
-    existingByEmail.set(key, payload.roster[payload.roster.length-1]);
+  $("btnWeekHoliday").addEventListener("click", () => {
+    if (!state.selectedProviderId) return;
+    setWholeWeekStatus(state.selectedProviderId, "Holiday");
+  });
+
+  $("btnWeekAdmin").addEventListener("click", () => {
+    if (!state.selectedProviderId) return;
+    setWholeWeekStatus(state.selectedProviderId, "Admin");
+  });
+
+  $("btnWeekClear").addEventListener("click", () => {
+    if (!state.selectedProviderId) return;
+    clearWholeWeek(state.selectedProviderId);
+  });
+
+  $("btnCloseModal").addEventListener("click", closeDayModal);
+  $("modalBackdrop").addEventListener("click", closeDayModal);
+
+  $("modalStatus").addEventListener("change", (e) => {
+    updateModalFieldState(e.target.value);
+  });
+
+  $("btnSaveDay").addEventListener("click", () => {
+    const ok = saveModalDay();
+    if (!ok) return;
+    closeDayModal();
+  });
+
+  $("btnPrevDay").addEventListener("click", () => moveModalDay(-1));
+  $("btnNextDay").addEventListener("click", () => moveModalDay(1));
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeDayModal();
   });
 }
 
-function parseProvidersCSV(text){
-  const rows = csvToRows(text).map(r => (r[0]||"").trim()).filter(Boolean);
-  if(!rows.length) return [];
-  const first = rows[0].toLowerCase();
-  const startIdx = (first.includes("provider")) ? 1 : 0;
+async function init() {
+  state.weekOf = startOfWeek();
+  $("weekPicker").value = state.weekOf;
 
-  const out = [];
-  for(let i=startIdx;i<rows.length;i++){
-    const name = rows[i].trim();
-    if(!name) continue;
-    out.push({ id: slug(name), name });
-  }
-  return out;
-}
+  wireEvents();
 
-function mergeProviders(current, incoming){
-  const byName = new Map((current||[]).map(p => [(p.name||"").toLowerCase(), p]));
-  incoming.forEach(p=>{
-    const name = (p.name||"").trim();
-    if(!name) return;
-    const key = name.toLowerCase();
-    if(byName.has(key)) return;
-    byName.set(key, { id: p.id || slug(name), name });
-  });
-  return Array.from(byName.values()).sort((a,b)=>a.name.localeCompare(b.name));
-}
-
-/* ---------------- Provider-driven -> Staff-driven generation ---------------- */
-
-function rebuildStaffViewFromProviderDriven(payload){
-  payload.templates = [];
-  payload.entries = {};
-  payload.assignmentMeta = {};
-
-  const roster = payload.roster || [];
-  roster.forEach(r=>{
-    payload.entries[r.id] = {};
-    DAYS.forEach(d=> payload.entries[r.id][d] = null);
-    payload.assignmentMeta[r.id] = {};
-  });
-
-  const put = (staffId, day, text, meta) => {
-    const tid = ensureTemplate(payload, text);
-    payload.entries[staffId][day] = tid;
-    payload.assignmentMeta[staffId][day] = meta || {};
-  };
-
-  for(const pid of Object.keys(payload.providerAssignments||{})){
-    const provider = (payload.providers||[]).find(p=>p.id===pid);
-
-    for(const day of DAYS){
-      const c = payload.providerAssignments[pid][day];
-      if(!c || c.off) continue;
-
-      // MA text now is provider location/time + MA name (reflecting your new flow)
-      if(c.maStaffId){
-        const pA = findPreset(payload, c.timeA);
-        const primary = `${c.locA} ${pA ? pA.label : ""}`.trim();
-
-        let segB = "";
-        if(c.segBEnabled){
-          const pB = findPreset(payload, c.timeB);
-          segB = ` + ${c.locB} ${pB ? pB.label : ""}`.trim();
-        }
-
-        const text = `MA • ${provider?.name || ""} • ${primary}${segB}`.trim();
-        put(c.maStaffId, day, text, {
-          kind:"MA",
-          providerId: pid,
-          providerName: provider?.name || "",
-          locA: c.locA,
-          timeA: c.timeA,
-          segBEnabled: !!c.segBEnabled,
-          locB: c.locB,
-          timeB: c.timeB
-        });
-      }
-
-      if(c.xrStaffId){
-        const pX = findPreset(payload, c.xrTime);
-        const text = `XR • ${provider?.name || ""} • ${c.xrLocation} • ${c.xrRoomId} • ${pX ? pX.label : ""}`.trim();
-        put(c.xrStaffId, day, text, {
-          kind:"XR",
-          providerId: pid,
-          providerName: provider?.name || "",
-          xrLocation: c.xrLocation,
-          xrRoomId: c.xrRoomId,
-          xrTime: c.xrTime
-        });
-      }
-    }
-  }
-
-  for(const day of DAYS){
-    const f = payload.floatAssignments?.[day];
-    if(!f) continue;
-
-    if(f.ma?.staffId){
-      const p = findPreset(payload, f.ma.presetId);
-      const text = `MA • FLOAT • ${f.ma.location} • ${p ? p.label : ""}`.trim();
-      put(f.ma.staffId, day, text, { kind:"MA", float:true, location:f.ma.location, presetId:f.ma.presetId });
-    }
-
-    if(f.xr?.staffId){
-      const p = findPreset(payload, f.xr.presetId);
-      const text = `XR • FLOAT • ${f.xr.location} • ${f.xr.roomId} • ${p ? p.label : ""}`.trim();
-      put(f.xr.staffId, day, text, { kind:"XR", float:true, location:f.xr.location, room:f.xr.roomId, presetId:f.xr.presetId });
-    }
+  try {
+    await Promise.all([loadProviders(), loadStaff()]);
+    await loadWeek();
+  } catch (err) {
+    console.error(err);
+    setSaveStatus("Failed to load");
+    alert("Could not load scheduler data. Check API settings and storage connection.");
   }
 }
 
-function ensureTemplate(payload, raw){
-  const id = idForRaw(raw);
-  if(!payload.templates.some(t=>t.id===id)){
-    payload.templates.push({ id, raw });
-  }
-  return id;
-}
-
-function findPreset(payload, presetId){
-  return (payload.timePresets||[]).find(p=>p.id===presetId) || null;
-}
-
-/* ---------------- Validation ---------------- */
-
-function validate(payload){
-  const issues = [];
-
-  (payload.roster||[]).forEach(r=>{
-    if(!r.email) issues.push(`${r.name} missing email`);
-  });
-
-  (payload.providers||[]).forEach(p=>{
-    for(const day of DAYS){
-      const c = payload.providerAssignments?.[p.id]?.[day];
-      if(!c) { issues.push(`${p.name} missing ${day}`); continue; }
-      if(c.off) continue;
-
-      if(!c.locA) issues.push(`${p.name} missing location on ${day}`);
-      if(!c.timeA) issues.push(`${p.name} missing time on ${day}`);
-      if(!c.maStaffId) issues.push(`${p.name} missing MA on ${day}`);
-
-      if(c.segBEnabled){
-        if(!c.locB) issues.push(`${p.name} missing Segment B location on ${day}`);
-        if(!c.timeB) issues.push(`${p.name} missing Segment B time on ${day}`);
-      }
-
-      if(c.xrStaffId){
-        if(!c.xrLocation || !c.xrRoomId || !c.xrTime) issues.push(`${p.name} XR incomplete on ${day}`);
-      }
-    }
-  });
-
-  return issues;
-}
-
-/* ---------------- Export CSV ---------------- */
-
-function exportPublishedToCSV(){
-  const sched = state.published;
-  if(!sched?.roster?.length) return toast("No published schedule to export.");
-
-  const header = ["TEAM MEMBER", ...DAYS];
-  const lines = [header];
-
-  const roster = sched.roster.slice().sort((a,b)=>a.name.localeCompare(b.name));
-  roster.forEach(r=>{
-    const e = sched.entries?.[r.id] || {};
-    const teamLabel = r.role === "XR" ? `(XR) ${r.name}` : r.name;
-    const row = [teamLabel, ...DAYS.map(d=>{
-      const tid = e[d];
-      return tid ? (templateTextById(sched, tid) || "") : "";
-    })];
-    lines.push(row);
-  });
-
-  const csv = lines.map(arr => arr.map(csvEscape).join(",")).join("\n");
-  downloadTextFile(`Schedule_${state.currentWeekOf}.csv`, csv, "text/csv");
-  toast("CSV exported.");
-}
-
-function templateTextById(sched, id){
-  const t = (sched.templates||[]).find(x=>x.id===id);
-  return t ? (t.raw || "") : "";
-}
-
-/* ---------------- Provider/XR labels + staff options ---------------- */
-
-function staffLabel(payload, staffId, role){
-  if(!staffId) return role === "MA" ? "Unassigned" : "None";
-  const s = (payload.roster||[]).find(r=>r.id===staffId);
-  return s ? s.name : "Unknown";
-}
-
-function xrLabel(payload, c){
-  if(!c.xrStaffId) return "—";
-  const staff = staffLabel(payload, c.xrStaffId, "XR");
-  const p = findPreset(payload, c.xrTime);
-  return `${staff} • ${c.xrLocation} • ${c.xrRoomId} • ${p ? p.label : ""}`.trim();
-}
-
-function staffOptions(payload, role, selectedId, day, currentProviderId, allowNoneForXR=false){
-  const roster = (payload.roster||[]).filter(r => r.role===role).slice().sort((a,b)=>a.name.localeCompare(b.name));
-  const opts = [];
-
-  if(role==="XR" && allowNoneForXR){
-    opts.push(`<option value="">— None —</option>`);
-  }else{
-    opts.push(`<option value="">— Select ${role} —</option>`);
-  }
-
-  roster.forEach(r=>{
-    const lockedElsewhere = isStaffLockedForDay(payload, r.id, day, role, currentProviderId);
-    const disabled = lockedElsewhere && r.id !== selectedId;
-    opts.push(`<option value="${escapeHtml(r.id)}" ${r.id===selectedId?"selected":""} ${disabled?"disabled":""}>${escapeHtml(r.name)}${disabled ? " (locked)" : ""}</option>`);
-  });
-
-  return opts.join("");
-}
-
-function locationOptionsHTML(selectedCode){
-  const opts = [`<option value="">— Select —</option>`]
-    .concat(LOCATIONS.map(l=>`<option value="${l.code}" ${l.code===selectedCode?"selected":""}>${l.name} (${l.code})</option>`));
-  return opts.join("");
-}
-
-function presetOptions(payload, selectedId){
-  const presets = (payload.timePresets||[]).slice();
-  const opts = [`<option value="">— Select —</option>`]
-    .concat(presets.map(p => `<option value="${p.id}" ${p.id===selectedId?"selected":""}>${escapeHtml(p.label)}</option>`));
-  return opts.join("");
-}
-
-function xrRoomOptions(selectedId){
-  const opts = [`<option value="">— Select —</option>`]
-    .concat(XR_ROOMS.map(r => `<option value="${r.id}" ${r.id===selectedId?"selected":""}>${escapeHtml(r.label)}</option>`));
-  return opts.join("");
-}
-
-/* ---------------- Modals to add staff/provider/preset ---------------- */
-
-function openAddStaffModal(payload){
-  openModal({
-    title: "Add Staff",
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Full name</label>
-        <input id="addStaffName" type="text" placeholder="First Last" />
-      </div>
-      <div class="field" style="min-width:100%; margin-top:10px">
-        <label>Email</label>
-        <input id="addStaffEmail" type="email" placeholder="name@laorthos.com" />
-      </div>
-      <div class="field" style="min-width:100%; margin-top:10px">
-        <label>Role</label>
-        <select id="addStaffRole">
-          <option value="MA">MA</option>
-          <option value="XR">XR</option>
-        </select>
-      </div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn" id="addStaffSave">Add</button>
-    `,
-    onAfter(){
-      $("#addStaffSave").addEventListener("click", ()=>{
-        const name = ($("#addStaffName").value||"").trim();
-        const email = ($("#addStaffEmail").value||"").trim();
-        const role = $("#addStaffRole").value;
-
-        if(!name) return toast("Name required.");
-        const idBase = slug(name);
-        const id = payload.roster.some(r=>r.id===idBase) ? `${idBase}-${Math.random().toString(16).slice(2,6)}` : idBase;
-
-        payload.roster.push({ id, name, role, email });
-        closeModal();
-        toast("Staff added.");
-        renderRoster(payload);
-        renderActiveProvider(payload);
-        renderFloatPool(payload);
-      });
-    }
-  });
-}
-
-function openAddProviderModal(payload){
-  openModal({
-    title: "Add Provider",
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Provider name</label>
-        <input id="addProvName" type="text" placeholder="Dr. Lastname" />
-      </div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn" id="addProvSave">Add</button>
-    `,
-    onAfter(){
-      $("#addProvSave").addEventListener("click", ()=>{
-        const name = ($("#addProvName").value||"").trim();
-        if(!name) return toast("Provider name required.");
-        payload.providers = mergeProviders(payload.providers || [], [{ id: slug(name), name }]);
-        ensureProviderAssignmentsScaffold(payload);
-        closeModal();
-        toast("Provider added.");
-        renderProviderList(payload);
-      });
-    }
-  });
-}
-
-function openAddTimePresetModal(payload){
-  openModal({
-    title: "Add Time Preset",
-    body: `
-      <div class="field" style="min-width:100%">
-        <label>Label</label>
-        <input id="tpLabel" type="text" placeholder="Example: 9:00am - 5:30pm" />
-      </div>
-      <div class="row" style="padding:0; margin-top:12px; gap:12px">
-        <div class="field grow" style="min-width:220px">
-          <label>Start</label>
-          <input id="tpStart" type="time" />
-        </div>
-        <div class="field grow" style="min-width:220px">
-          <label>End</label>
-          <input id="tpEnd" type="time" />
-        </div>
-      </div>
-      <div class="hint">This will become selectable everywhere.</div>
-    `,
-    foot: `
-      <button class="btn btnGhost" data-close="1">Cancel</button>
-      <button class="btn" id="tpSave">Add</button>
-    `,
-    onAfter(){
-      $("#tpSave").addEventListener("click", ()=>{
-        const label = ($("#tpLabel").value||"").trim();
-        const start = ($("#tpStart").value||"").trim();
-        const end = ($("#tpEnd").value||"").trim();
-        if(!label) return toast("Label required.");
-        if(!start || !end) return toast("Start and end required.");
-
-        const id = `tp_${Math.random().toString(16).slice(2,10)}`;
-        payload.timePresets.push({ id, label, start, end });
-        closeModal();
-        toast("Preset added.");
-        renderTimePresets(payload);
-        renderActiveProvider(payload);
-        renderFloatPool(payload);
-      });
-    }
-  });
-}
-
-/* ---------------- Helpers ---------------- */
-
-function ensureDraftForWeek(weekOf){
-  if(!state.draft || state.draft.weekOf !== weekOf){
-    state.draft = {
-      weekOf,
-      roster: [],
-      providers: [],
-      timePresets: DEFAULT_TIME_PRESETS.map(x=>({...x})),
-      providerAssignments: {},
-      providerDone: {},
-      floatAssignments: defaultFloatAssignments(),
-      templates: [],
-      entries: {},
-      assignmentMeta: {}
-    };
-  }
-  normalizeDraft(state.draft);
-  return state.draft;
-}
-
-function csvToRows(text){
-  const lines = text.replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n");
-  return lines.map(parseCSVLine);
-}
-function parseCSVLine(line){
-  const out = [];
-  let cur = "";
-  let inQ = false;
-  for(let i=0; i<line.length; i++){
-    const ch = line[i];
-    if(ch === '"'){
-      if(inQ && line[i+1] === '"'){ cur += '"'; i++; }
-      else inQ = !inQ;
-      continue;
-    }
-    if(ch === "," && !inQ){
-      out.push(cur);
-      cur = "";
-      continue;
-    }
-    cur += ch;
-  }
-  out.push(cur);
-  return out;
-}
-function csvEscape(v){
-  const s = (v ?? "").toString();
-  if(/[,"\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
-  return s;
-}
-
-function mondayOf(date){
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = (day === 0 ? -6 : 1) - day;
-  d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0,10);
-}
-
-function dayName(date){
-  const idx = date.getDay();
-  const map = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-  const name = map[idx];
-  return DAYS.includes(name) ? name : null;
-}
-
-function formatLongDate(d){
-  return d.toLocaleDateString(undefined, { weekday:"long", year:"numeric", month:"long", day:"numeric" });
-}
-
-function slug(name){
-  return (name||"")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g,"-")
-    .replace(/^-+|-+$/g,"")
-    .slice(0,60) || "item";
-}
-
-function idForRaw(raw){
-  const s = (raw||"").trim().toLowerCase();
-  let h = 2166136261;
-  for(let i=0;i<s.length;i++){
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return "t_" + (h>>>0).toString(16);
-}
-
-function deepClone(obj){
-  return JSON.parse(JSON.stringify(obj));
-}
-
-function toast(msg){
-  const el = $("#toast");
-  el.textContent = msg;
-  el.hidden = false;
-  clearTimeout(toast._t);
-  toast._t = setTimeout(()=>{ el.hidden = true; }, 2600);
-}
-
-function downloadTextFile(filename, content, mime){
-  const blob = new Blob([content], {type: mime || "text/plain"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-function escapeHtml(s){
-  return (s ?? "").toString()
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
-}
-
-/* ---------------- Modal ---------------- */
-
-function openModal({title, body, foot, onAfter}){
-  $("#modalTitle").textContent = title || "Modal";
-  $("#modalBody").innerHTML = body || "";
-  $("#modalFoot").innerHTML = foot || `<button class="btn btnGhost" data-close="1">Close</button>`;
-  $("#modal").hidden = false;
-  setTimeout(()=>{ onAfter?.(); }, 0);
-}
-function closeModal(){
-  $("#modal").hidden = true;
-  $("#modalBody").innerHTML = "";
-  $("#modalFoot").innerHTML = "";
-}
+init();
