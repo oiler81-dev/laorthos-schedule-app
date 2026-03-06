@@ -1,39 +1,50 @@
-const { TableClient } = require("@azure/data-tables");
+const { ensureTable } = require("../shared/table");
 
 module.exports = async function (context, req) {
   try {
-    const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
-    const tableName = process.env.SCHEDULES_TABLE_NAME || "Schedules";
-
-    if (!connectionString) {
-      context.res = { status: 500, body: "Missing storage connection string" };
+    const weekOf = req.query.weekOf;
+    if (!weekOf) {
+      context.res = { status: 400, body: { error: "Missing weekOf" } };
       return;
     }
 
-    const tableClient = TableClient.fromConnectionString(connectionString, tableName);
+    const client = await ensureTable("schedule");
+    const items = [];
 
-    const weeks = [];
-
-    const entities = tableClient.listEntities({
-      queryOptions: { filter: "RowKey eq 'published'" }
+    const entities = client.listEntities({
+      queryOptions: {
+        filter: `PartitionKey eq 'WEEK#${weekOf}'`
+      }
     });
 
     for await (const entity of entities) {
-      weeks.push(entity.partitionKey);
+      items.push({
+        weekOf,
+        providerId: entity.providerId || "",
+        providerName: entity.providerName || "",
+        day: entity.day || "",
+        status: entity.status || "Scheduled",
+        maId: entity.maId || "",
+        maName: entity.maName || "",
+        xrtId: entity.xrtId || "",
+        xrtName: entity.xrtName || "",
+        location: entity.location || "",
+        secondaryLocation: entity.secondaryLocation || "",
+        time: entity.time || "",
+        xrRoom: entity.xrRoom || "",
+        notes: entity.notes || ""
+      });
     }
-
-    weeks.sort((a, b) => (a < b ? 1 : -1));
 
     context.res = {
       status: 200,
       headers: { "Content-Type": "application/json" },
-      body: { weeks }
+      body: { items }
     };
-
   } catch (err) {
     context.res = {
       status: 500,
-      body: err.message
+      body: { error: err.message || "Failed to load week schedule." }
     };
   }
 };
