@@ -1,257 +1,192 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>LA Orthos | MA/XR Schedule</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <title>LAOSS MA/XRT Scheduling</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <img class="logoImg" src="./assets/laorthos-logo.png" alt="LA Orthos" />
-      <div class="brandText">
-        <div class="brandTitle">MA/XR Schedule</div>
-        <div class="brandSub" id="authLine">Loading…</div>
+      <img src="assets/laorthos-logo.png" alt="LA Orthos logo" class="logo" />
+      <div>
+        <h1>LAOSS MA/XRT Scheduling</h1>
+        <p class="sub">Provider-first weekly staffing builder</p>
       </div>
     </div>
 
-    <nav class="tabs" role="tablist" aria-label="Schedule views">
-      <button class="tab is-active" data-view="my" role="tab" aria-selected="true">My Schedule</button>
-      <button class="tab" data-view="everyone" role="tab" aria-selected="false">Everyone</button>
-      <button class="tab" data-view="builder" role="tab" aria-selected="false" id="builderTab" style="display:none;">Builder</button>
-    </nav>
+    <div class="topbar-actions">
+      <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
+      <button id="btnSave" class="btn btn-primary">Save Week</button>
+    </div>
   </header>
 
-  <main class="wrap">
-    <section id="toast" class="toast" hidden></section>
+  <main class="page">
+    <section class="toolbar card">
+      <div class="toolbar-row">
+        <div class="field">
+          <label for="weekPicker">Week Of</label>
+          <input type="date" id="weekPicker" />
+        </div>
 
-    <!-- MY -->
-    <section id="view-my" class="view">
-      <div class="panel">
-        <div class="panelHead">
-          <h1>My Schedule</h1>
-          <div class="panelActions">
-            <button class="btn btnGhost" id="btnLogin">Login</button>
-            <button class="btn btnGhost" id="btnLogout">Logout</button>
+        <div class="field">
+          <label for="providerSearch">Find Provider</label>
+          <input type="text" id="providerSearch" placeholder="Search provider..." />
+        </div>
+
+        <div class="field">
+          <label for="timePresetBuilder">Add Time Preset</label>
+          <div class="inline">
+            <input type="text" id="timePresetBuilder" placeholder="ex. 9:00am - 5:30pm" />
+            <button id="btnAddPreset" class="btn btn-secondary">Add</button>
           </div>
         </div>
 
-        <div class="row">
-          <div class="field">
-            <label>Week of (Mon)</label>
-            <select id="weekPickMy"></select>
-          </div>
-          <div class="field grow">
-            <label>Matched staff</label>
-            <div class="pill" id="myMatchPill">—</div>
-          </div>
-        </div>
-
-        <div class="cards">
-          <div class="card">
-            <div class="cardTitle">Today</div>
-            <div id="todayCard" class="cardBody muted">Loading…</div>
-          </div>
-
-          <div class="card">
-            <div class="cardTitle">This Week</div>
-            <div id="weekCards" class="weekCards"></div>
-          </div>
+        <div class="field">
+          <label for="providerCompletionInfo">Provider Status</label>
+          <div id="providerCompletionInfo" class="pill">Select a provider</div>
         </div>
       </div>
     </section>
 
-    <!-- EVERYONE -->
-    <section id="view-everyone" class="view" hidden>
-      <div class="panel">
-        <div class="panelHead">
-          <h1>Everyone</h1>
-          <div class="panelActions">
-            <button class="btn btnGhost" id="btnPrint">Print</button>
-            <button class="btn btnGhost" id="btnExportCSV">Export CSV</button>
+    <section class="layout">
+      <aside class="sidebar">
+        <div class="card">
+          <div class="card-head">
+            <h2>Providers</h2>
           </div>
+          <div id="providerList" class="provider-list"></div>
         </div>
 
-        <div class="filters">
-          <div class="field">
-            <label>Week of (Mon)</label>
-            <select id="weekPickEveryone"></select>
+        <div class="card">
+          <div class="card-head">
+            <h2>Available Staff</h2>
           </div>
-          <div class="field">
-            <label>Role</label>
-            <select id="roleFilter">
-              <option value="ALL">All</option>
-              <option value="MA">MA</option>
-              <option value="XR">XR</option>
-            </select>
+
+          <div class="staff-section">
+            <h3>MAs</h3>
+            <div id="maPool" class="staff-pool"></div>
           </div>
-          <div class="field grow">
-            <label>Search</label>
-            <input id="searchFilter" type="text" placeholder="Type a name…" />
+
+          <div class="staff-section">
+            <h3>XRT</h3>
+            <div id="xrtPool" class="staff-pool"></div>
           </div>
-        </div>
 
-        <div class="tableWrap">
-          <table class="grid" id="everyoneGrid">
-            <thead></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- BUILDER -->
-    <section id="view-builder" class="view" hidden>
-      <div class="panel">
-        <div class="panelHead">
-          <h1>Builder (Provider-driven)</h1>
-          <div class="panelActions">
-            <button class="btn btnGhost" id="btnImportStaffCSV">Import Staff CSV</button>
-            <button class="btn btnGhost" id="btnLoadStaffFromRepo">Load Staff from Repo</button>
-
-            <button class="btn btnGhost" id="btnImportProvidersCSV">Import Providers CSV</button>
-            <button class="btn btnGhost" id="btnLoadProvidersFromRepo">Load Providers from Repo</button>
-
-            <button class="btn btnGhost" id="btnLoadDraft">Load Draft</button>
-            <button class="btn btnGhost" id="btnLoadPublished">Load Published</button>
-            <button class="btn" id="btnSaveDraft">Save Draft</button>
-            <button class="btn" id="btnPublish">Publish</button>
+          <div class="staff-section">
+            <h3>Float Options</h3>
+            <div id="floatPool" class="staff-pool"></div>
           </div>
         </div>
+      </aside>
 
-        <div class="builderTop">
-          <div class="field">
-            <label>Week of (Mon)</label>
-            <select id="weekPickBuilder"></select>
+      <section class="content">
+        <div class="card">
+          <div class="provider-header-main">
+            <div>
+              <h2 id="selectedProviderName">Select a provider</h2>
+              <div id="selectedProviderMeta" class="provider-meta"></div>
+            </div>
+
+            <div class="provider-header-actions">
+              <button id="btnWeekScheduled" class="btn btn-secondary">Mark Week Scheduled</button>
+              <button id="btnWeekOff" class="btn btn-secondary">Mark Week OFF</button>
+              <button id="btnWeekPto" class="btn btn-secondary">Mark Week PTO</button>
+              <button id="btnWeekHoliday" class="btn btn-secondary">Mark Week Holiday</button>
+              <button id="btnWeekAdmin" class="btn btn-secondary">Mark Week Admin</button>
+              <button id="btnWeekClear" class="btn btn-secondary">Clear Week</button>
+            </div>
           </div>
-          <div class="field grow">
-            <label>Status</label>
-            <div class="pill" id="builderStatus">—</div>
-          </div>
-          <div class="field">
-            <label>Validate</label>
-            <button class="btn btnGhost" id="btnValidate">Run</button>
-          </div>
-          <div class="field">
-            <label>Reset</label>
-            <button class="btn btnGhost" id="btnClearWeek">Clear Draft Week</button>
-          </div>
+
+          <div id="selectedWeekGrid" class="selected-week-grid"></div>
         </div>
 
-        <div class="builderShell">
-          <!-- LEFT: Providers -->
-          <aside class="side">
-            <div class="sideHead">
-              <div>
-                <div class="sideTitle">Providers</div>
-                <div class="muted small">Green = complete</div>
-              </div>
-              <div class="sideActions">
-                <button class="btn btnSmall btnGhost" id="btnAddProvider">Add</button>
-              </div>
-            </div>
-
-            <div class="field" style="margin-top:10px">
-              <label>Search provider</label>
-              <input id="providerSearch" type="text" placeholder="Type to filter…" />
-            </div>
-
-            <div class="providerList" id="providerList"></div>
-
-            <div class="divider"></div>
-
-            <div class="sideHead" style="margin-top:0">
-              <div>
-                <div class="sideTitle">Float Pool</div>
-                <div class="muted small">Assign only after all providers covered</div>
-              </div>
-            </div>
-            <div class="floatBox" id="floatBox"></div>
-          </aside>
-
-          <!-- RIGHT: Provider editor -->
-          <section class="mainPane">
-            <div class="mainHead">
-              <div>
-                <div class="mainTitle" id="activeProviderTitle">Select a provider</div>
-                <div class="muted small" id="activeProviderSub">Then assign Mon–Fri</div>
-              </div>
-              <div class="mainActions">
-                <button class="btn btnGhost" id="btnProviderMarkDone">Mark Done</button>
-                <button class="btn btnGhost" id="btnProviderMarkNotDone">Mark Not Done</button>
-              </div>
-            </div>
-
-            <div class="grid2">
-              <div class="card soft">
-                <div class="cardTitleRow">
-                  <div class="cardTitle">Staff Roster</div>
-                  <button class="btn btnSmall btnGhost" id="btnAddStaff">Add</button>
-                </div>
-                <div class="muted small" style="margin-top:6px">
-                  MA and XR are locked per-day across providers.
-                </div>
-                <div class="rosterList" id="rosterEmailList"></div>
-              </div>
-
-              <div class="card soft">
-                <div class="cardTitleRow">
-                  <div class="cardTitle">Time Presets</div>
-                  <button class="btn btnSmall btnGhost" id="btnAddTimePreset">Add</button>
-                </div>
-                <div class="muted small" style="margin-top:6px">
-                  Times are presets only (no free text).
-                </div>
-                <div class="presetList" id="presetList"></div>
-              </div>
-            </div>
-
-            <div class="card soft" style="margin-top:14px">
-              <div class="cardTitleRow">
-                <div class="cardTitle">Provider Schedule (Mon–Fri)</div>
-                <div class="muted small">Per day: Location + Time first, then MA. Segment B optional.</div>
-              </div>
-
-              <div class="tableWrap">
-                <table class="grid" id="providerWeekGrid">
-                  <thead></thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
-
-            <div class="card soft" style="margin-top:14px">
-              <div class="cardTitleRow">
-                <div class="cardTitle">Locations</div>
-                <div class="muted small">Codes used in output</div>
-              </div>
-              <div class="locationList" id="locationList"></div>
-            </div>
-
-          </section>
+        <div class="card review-card">
+          <div class="card-head">
+            <h2>Weekly Review</h2>
+            <div id="saveStatus" class="save-status">Not saved</div>
+          </div>
+          <div id="reviewGridWrap" class="review-grid-wrap"></div>
         </div>
-      </div>
+      </section>
     </section>
   </main>
 
-  <!-- Modal -->
-  <div class="modal" id="modal" hidden>
-    <div class="modalBackdrop" data-close="1"></div>
-    <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <div class="modalHead">
-        <div id="modalTitle" class="modalTitle">Modal</div>
-        <button class="iconBtn" data-close="1" aria-label="Close">✕</button>
+  <div id="dayModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <div id="modalDayTitle" class="modal-title">Edit Day</div>
+          <div id="modalDaySub" class="modal-sub"></div>
+        </div>
+        <button id="btnCloseModal" class="icon-btn" type="button" aria-label="Close">✕</button>
       </div>
-      <div class="modalBody" id="modalBody"></div>
-      <div class="modalFoot" id="modalFoot"></div>
+
+      <div class="modal-body">
+        <div class="modal-grid">
+          <div class="field">
+            <label for="modalStatus">Day Status</label>
+            <select id="modalStatus">
+              <option value="Scheduled">Scheduled</option>
+              <option value="OFF">OFF</option>
+              <option value="PTO">PTO</option>
+              <option value="Holiday">Holiday</option>
+              <option value="Admin">Admin</option>
+              <option value="Call Only">Call Only</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="modalLocation">Primary Location</label>
+            <select id="modalLocation"></select>
+          </div>
+
+          <div class="field">
+            <label for="modalMa">MA</label>
+            <select id="modalMa"></select>
+          </div>
+
+          <div class="field">
+            <label for="modalTime">Shift Time</label>
+            <select id="modalTime"></select>
+          </div>
+
+          <div class="field">
+            <label for="modalXrt">XRT</label>
+            <select id="modalXrt"></select>
+          </div>
+
+          <div class="field">
+            <label for="modalXrRoom">XR Room</label>
+            <input type="text" id="modalXrRoom" placeholder="Optional XR room" />
+          </div>
+
+          <div class="field field-span-2">
+            <label for="modalSecondaryLocation">Secondary Location</label>
+            <input type="text" id="modalSecondaryLocation" placeholder="Optional second location" />
+          </div>
+
+          <div class="field field-span-2">
+            <label for="modalNotes">Notes</label>
+            <input type="text" id="modalNotes" placeholder="Optional notes" />
+          </div>
+        </div>
+
+        <div id="nonScheduledMessage" class="non-scheduled-message hidden">
+          This day is not scheduled. Staffing fields are disabled until the status is set back to Scheduled.
+        </div>
+      </div>
+
+      <div class="modal-foot">
+        <button id="btnPrevDay" class="btn btn-secondary">Save & Previous</button>
+        <button id="btnNextDay" class="btn btn-secondary">Save & Next</button>
+        <button id="btnSaveDay" class="btn btn-primary">Save Day</button>
+      </div>
     </div>
   </div>
 
-  <!-- Hidden file inputs -->
-  <input id="staffFile" type="file" accept=".csv,text/csv" hidden />
-  <input id="providersFile" type="file" accept=".csv,text/csv" hidden />
-
-  <script src="./app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
