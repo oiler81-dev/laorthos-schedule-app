@@ -1,58 +1,57 @@
-const { TableClient } = require("@azure/data-tables");
+const fs = require("fs");
+const path = require("path");
 
-function getClient() {
-  const cs = process.env.AZURE_STORAGE_CONNECTION_STRING;
-  const table = process.env.SCHEDULES_TABLE_NAME || "Schedules";
-  if (!cs) throw new Error("Missing AZURE_STORAGE_CONNECTION_STRING");
-  return TableClient.fromConnectionString(cs, table);
+function parseCsv(text) {
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  if (!lines.length) return [];
+  const headers = lines[0].split(",").map(h => h.trim());
+  return lines.slice(1).map(line => {
+    const cols = line.split(",").map(v => v.trim());
+    const row = {};
+    headers.forEach((h, i) => row[h] = cols[i] || "");
+    return row;
+  });
 }
 
-function json(res, status, body) {
-  res.status = status;
-  res.headers = { "Content-Type": "application/json" };
-  res.body = JSON.stringify(body);
-  return res;
+function toId(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
 }
 
-module.exports = async function (context, req) {
+module.exports = async function (context) {
   try {
-    const client = getClient();
+    const csvPath = path.join(process.cwd(), "data", "providers.csv");
+    const raw = fs.readFileSync(csvPath, "utf8");
+    const rows = parseCsv(raw);
 
-    // GET default providers
-    if ((req.method || "").toUpperCase() === "GET") {
-      try {
-        const entity = await client.getEntity("providers", "default");
-        const providers = entity?.data ? JSON.parse(entity.data) : null;
-        return (context.res = json(context.res, 200, { ok: true, providers }));
-      } catch {
-        return (context.res = json(context.res, 200, { ok: true, providers: null }));
-      }
-    }
+    const providers = rows
+      .map(r => {
+        const name = r.provider || r.name || r.Provider || r.Name || "";
+        const location = r.location || r.Location || "";
+        const specialty = r.specialty || r.Specialty || "";
+        const locations = r.locations || r.Locations || "";
+        return {
+          id: toId(name),
+          name,
+          location,
+          specialty,
+          locations
+        };
+      })
+      .filter(p => p.name);
 
-    // POST save default providers
-    const providers = req.body?.providers;
-    if (!Array.isArray(providers)) {
-      return (context.res = json(context.res, 400, { ok: false, error: "Body must include providers: []" }));
-    }
-
-    // Normalize: strings only, trimmed, unique, non-empty
-    const clean = Array.from(new Set(
-      providers
-        .map(x => (x ?? "").toString().trim())
-        .filter(Boolean)
-    ));
-
-    const entity = {
-      partitionKey: "providers",
-      rowKey: "default",
-      updatedAt: new Date().toISOString(),
-      data: JSON.stringify(clean)
+    context.res = {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+      body: { providers }
     };
-
-    await client.upsertEntity(entity, "Replace");
-    return (context.res = json(context.res, 200, { ok: true, count: clean.length }));
   } catch (err) {
-    context.log.error(err);
-    return (context.res = json(context.res, 500, { ok: false, error: err.message || "Server error" }));
+    context.res = {
+      status: 500,
+      body: { error: err.message || "Failed to load providers." }
+    };
   }
 };
